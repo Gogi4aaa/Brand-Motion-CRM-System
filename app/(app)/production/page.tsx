@@ -91,7 +91,7 @@ export default function ProductionPage() {
               key={col.key}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => { if (dragId) { advanceStage(dragId, col.key); setDragId(null); } }}
-              style={{ flex: "0 0 230px", background: "var(--bm-surface-2)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", minHeight: 240 }}
+              style={{ flex: "0 0 230px", background: "var(--bm-surface-2)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", minHeight: 240, maxHeight: "calc(100vh - 220px)" }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
@@ -101,6 +101,7 @@ export default function ProductionPage() {
                 <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{items.length}</span>
               </div>
 
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", overflowY: "auto", minHeight: 0, paddingRight: 2 }}>
               {items.map((it) => {
                 const ct = contentTypeMeta(it.type);
                 const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));
@@ -129,6 +130,7 @@ export default function ProductionPage() {
               {items.length === 0 && (
                 <div style={{ border: "1px dashed var(--bm-border-strong)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", textAlign: "center", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>—</div>
               )}
+              </div>
             </div>
           );
         })}
