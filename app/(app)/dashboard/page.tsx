@@ -24,7 +24,7 @@ function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.Re
 }
 
 export default function DashboardPage() {
-  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems } = useStore();
+  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead } = useStore();
   const byId = clientsById(clients);
   const firstName = currentUser.name.split(" ")[0] || "колега";
   const showMoney = currentUser.level !== "worker";
@@ -79,6 +79,22 @@ export default function DashboardPage() {
 
       <section className={showMoney ? "bm-split" : undefined} style={showMoney ? undefined : { display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
+          <div className="bm-card">
+            <div className="bm-card__header"><h3>Известия</h3>{notifications.filter((n) => !n.read).length > 0 && <span className="bm-badge bm-badge--brand">{notifications.filter((n) => !n.read).length} нови</span>}</div>
+            <div className="bm-card__body" style={{ paddingTop: 0 }}>
+              {notifications.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма известия.</p>}
+              {notifications.slice(0, 4).map((n) => (
+                <div key={n.id} onClick={() => markNotificationRead(n.id)} style={{ display: "flex", gap: "var(--bm-space-3)", padding: "var(--bm-space-3) 0", borderBottom: "1px solid var(--bm-border)", cursor: "pointer" }}>
+                  <span className="bm-avatar bm-avatar--sm">{n.actor_initials}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "var(--bm-text-sm)", fontWeight: n.read ? 400 : 600 }}>{n.body}</div>
+                    <small style={{ color: "var(--bm-text-subtle)" }}>{ago(n.created_at)}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {showMoney && (
           <div className="bm-card">
             <div className="bm-card__header">

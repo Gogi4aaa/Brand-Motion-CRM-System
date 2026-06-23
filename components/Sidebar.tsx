@@ -47,7 +47,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         </span>
       </div>
 
-      <nav className="bm-nav">
+      <nav className="bm-nav bm-noscrollbar">
         <span
           style={{
             fontSize: "var(--bm-text-xs)",
