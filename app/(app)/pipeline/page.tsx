@@ -45,7 +45,7 @@ export default function PipelinePage() {
         <Kpi label="Средна сделка" value={leads.length ? fmtK(sum(leads) / leads.length) : "$0"} delta="по всички сделки" />
       </section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "var(--bm-space-3)", alignItems: "start" }}>
+      <div className="bm-board bm-board--5">
         {PIPELINE_STAGES.map((col) => {
           const items = leads.filter((l) => l.stage === col.key);
           return (

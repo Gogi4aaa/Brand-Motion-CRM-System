@@ -35,7 +35,7 @@ export default function TasksPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--bm-space-4)", alignItems: "start" }}>
+      <div className="bm-board bm-board--4">
         {TASK_COLUMNS.map((col) => {
           const colTasks = visible.filter((t) => t.status === col.key);
           return (

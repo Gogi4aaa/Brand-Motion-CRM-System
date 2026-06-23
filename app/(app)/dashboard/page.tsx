@@ -77,7 +77,7 @@ export default function DashboardPage() {
         )}
       </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: showMoney ? "1.4fr 1fr" : "1fr", gap: "var(--bm-space-6)", alignItems: "start" }}>
+      <section className={showMoney ? "bm-split" : undefined} style={showMoney ? undefined : { display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
           {showMoney && (
           <div className="bm-card">

@@ -46,6 +46,11 @@ function CalendarInner() {
   const itemsFor = (date: string) =>
     contentItems.filter((c) => c.client === clientId && c.date === date && pubOk(c));
   const backlog = contentItems.filter((c) => c.client === clientId && !c.date && pubOk(c));
+  // Mobile agenda: only the month's days that have content, in order.
+  const agenda = cells
+    .filter((c): c is { day: number; date: string } => c !== null)
+    .map((c) => ({ ...c, items: itemsFor(c.date) }))
+    .filter((c) => c.items.length > 0);
 
   const onDropDay = (date: string | null) => { if (dragId) { scheduleContent(dragId, date); setDragId(null); } };
 
@@ -122,8 +127,9 @@ function CalendarInner() {
             </div>
           </div>
 
-          {/* Calendar grid */}
-          <div style={{ flex: "1 1 520px", minWidth: 0, border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", overflow: "hidden", background: "var(--bm-surface)" }}>
+          {/* Calendar grid (desktop / tablet) */}
+          <div className="bm-hide-mobile" style={{ flex: "1 1 520px", minWidth: 0 }}>
+          <div style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", overflow: "hidden", background: "var(--bm-surface)" }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "var(--bm-slate-900)" }}>
               {WEEKDAYS.map((w) => (
                 <div key={w} style={{ padding: "var(--bm-space-2)", textAlign: "center", color: "#fff", fontSize: "var(--bm-text-xs)", fontWeight: 700, letterSpacing: "var(--bm-tracking-wide)" }}>{w}</div>
@@ -164,6 +170,31 @@ function CalendarInner() {
                 );
               })}
             </div>
+          </div>
+          </div>
+
+          {/* Agenda (mobile) */}
+          <div className="bm-show-mobile" style={{ flex: "1 1 100%", minWidth: 0, width: "100%", display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+            {agenda.length === 0 && <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма насрочено съдържание за {MONTHS[view.m]}.</div>}
+            {agenda.map((d) => (
+              <div key={d.date} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>{d.day} {MONTHS[view.m]} · {WEEKDAYS[new Date(d.date).getDay()]}</div>
+                {d.items.map((it) => {
+                  const m = contentTypeMeta(it.type);
+                  const total = it.stages?.length || 0;
+                  const done = it.stages?.filter((s) => s.status === "done").length || 0;
+                  return (
+                    <div
+                      key={it.id}
+                      onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
+                      style={{ borderLeft: `3px solid ${m.fg}`, background: m.bg, color: m.fg, borderRadius: "var(--bm-radius-sm)", padding: "8px 10px", fontSize: "var(--bm-text-sm)", fontWeight: 600, cursor: "pointer" }}
+                    >
+                      {it.published ? "✓ " : ""}{it.title}{total ? ` · ${done}/${total}` : ""}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
       ) : (

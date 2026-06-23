@@ -127,7 +127,7 @@ export default function ClientDetailPage() {
 
       {tab === "overview" && (
         <>
-        <section style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "var(--bm-space-6)", alignItems: "start" }}>
+        <section className="bm-split">
           <div className="bm-card">
             <div className="bm-card__header"><h3>Разход по канали този месец</h3></div>
             <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>

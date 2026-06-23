@@ -75,3 +75,33 @@ a {
   .bm-search { display: none; }
   .bm-main { padding: var(--bm-space-3); gap: var(--bm-space-4); }
 }
+
+/* ---- Responsive layout utilities --------------------------------------- */
+/* Two-column split that stacks on mobile */
+.bm-split { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--bm-space-6); align-items: start; }
+.bm-split--even { grid-template-columns: 1fr 1fr; }
+@media (max-width: 768px) {
+  .bm-split, .bm-split--even { grid-template-columns: 1fr; gap: var(--bm-space-4); }
+}
+
+/* Kanban board: equal columns on desktop, horizontal swipe on mobile */
+.bm-board { display: grid; gap: var(--bm-space-3); align-items: start; }
+.bm-board--5 { grid-template-columns: repeat(5, 1fr); }
+.bm-board--4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 768px) {
+  .bm-board { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 80%; overflow-x: auto; padding-bottom: var(--bm-space-2); }
+}
+
+/* Show one block on desktop, another on mobile (calendar month vs agenda) */
+.bm-hide-mobile { display: block; }
+.bm-show-mobile { display: none; }
+@media (max-width: 768px) {
+  .bm-hide-mobile { display: none; }
+  .bm-show-mobile { display: block; }
+}
+
+/* Smaller phones: tighten headings */
+@media (max-width: 560px) {
+  .bm h1 { font-size: var(--bm-text-xl); }
+  .bm h2 { font-size: var(--bm-text-lg); }
+}

@@ -44,7 +44,7 @@ export default function SocialPage() {
               <div>Няма свързани социални акаунти. Свържи Instagram, TikTok или YouTube от таб „Свързани акаунти“ — черновите и насрочването работят и без това.</div>
             </div>
           )}
-          <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-6)", alignItems: "start" }}>
+          <section className="bm-split bm-split--even">
             <div className="bm-card">
               <div className="bm-card__header"><h3>Нова публикация</h3></div>
               <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>

@@ -26,7 +26,7 @@ export default function ClientsPage() {
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center" }}>
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
             <span style={{ position: "absolute", left: 12, color: "var(--bm-text-subtle)", display: "flex" }}><Icon name="search" size={16} /></span>
-            <input className="bm-input" style={{ paddingLeft: 36, width: 220 }} placeholder="Търси клиенти…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input className="bm-input" style={{ paddingLeft: 36, width: "100%", maxWidth: 220 }} placeholder="Търси клиенти…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "client", mode: "create" })}><Icon name="plus" /> Добави клиент</button>
         </div>
