@@ -77,28 +77,17 @@ function ThemeToggle() {
   );
 }
 
-export function Topbar() {
+export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pathname = usePathname();
   const { openModal } = useStore();
   const isTasks = pathname.startsWith("/tasks");
 
   return (
-    <header
-      style={{
-        height: "var(--bm-header-height)",
-        flexShrink: 0,
-        background: "var(--bm-surface)",
-        borderBottom: "1px solid var(--bm-border)",
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--bm-space-4)",
-        padding: "0 var(--bm-space-6)",
-        position: "sticky",
-        top: 0,
-        zIndex: 10,
-      }}
-    >
-      <div style={{ flex: 1, maxWidth: 420, position: "relative", display: "flex", alignItems: "center" }}>
+    <header className="bm-topbar">
+      <button className="bm-btn bm-btn--ghost bm-btn--icon bm-menu-btn" onClick={onMenu} aria-label="Меню">
+        <Icon name="menu" />
+      </button>
+      <div className="bm-search">
         <span style={{ position: "absolute", left: 12, color: "var(--bm-text-subtle)", display: "flex" }}>
           <Icon name="search" />
         </span>

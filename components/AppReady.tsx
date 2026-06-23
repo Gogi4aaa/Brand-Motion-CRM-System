@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { Modals } from "./Modals";
@@ -9,6 +10,7 @@ import { useStore } from "./store";
 
 export function AppReady({ children }: { children: React.ReactNode }) {
   const { loading } = useStore();
+  const [navOpen, setNavOpen] = useState(false);
 
   // While the user's profile/role is loading, show only a spinner — never the
   // shell. This prevents workers from briefly seeing the admin layout/data.
@@ -22,11 +24,12 @@ export function AppReady({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "var(--bm-sidebar-width) 1fr", minHeight: "100vh" }}>
-        <Sidebar />
-        <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <Topbar />
-          <main style={{ padding: "var(--bm-space-6)", display: "flex", flexDirection: "column", gap: "var(--bm-space-6)", maxWidth: "var(--bm-container-max)", width: "100%" }}>
+      <div className="bm-shell">
+        <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
+        {navOpen && <div className="bm-nav-backdrop" onClick={() => setNavOpen(false)} />}
+        <div className="bm-content">
+          <Topbar onMenu={() => setNavOpen(true)} />
+          <main className="bm-main">
             <AccessGuard>{children}</AccessGuard>
           </main>
         </div>

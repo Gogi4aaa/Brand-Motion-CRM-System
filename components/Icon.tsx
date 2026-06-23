@@ -28,6 +28,7 @@ const PATHS: Record<string, React.ReactNode> = {
   chevronRight: (<path d="m9 18 6-6-6-6" />),
   production: (<><path d="m12 2 7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V6z" /><path d="m9 11 2 2 4-4" /></>),
   shield: (<><path d="m12 2 7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V6z" /><circle cx="12" cy="10" r="2" /><path d="M9.5 16a3 3 0 0 1 5 0" /></>),
+  menu: (<path d="M3 6h18M3 12h18M3 18h18" />),
 };
 
 export type IconName = keyof typeof PATHS;

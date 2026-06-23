@@ -101,7 +101,7 @@ export default function ProductionPage() {
                 <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{items.length}</span>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", overflowY: "auto", minHeight: 0, paddingRight: 2 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", overflowY: "auto", flex: "1 1 0", minHeight: 0, paddingRight: 2 }}>
               {items.map((it) => {
                 const ct = contentTypeMeta(it.type);
                 const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));

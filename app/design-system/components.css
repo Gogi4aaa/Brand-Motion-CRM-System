@@ -257,10 +257,11 @@ body.bm {
   width: 100%; max-width: 480px;
   background: var(--bm-surface); border-radius: var(--bm-radius-xl);
   box-shadow: var(--bm-shadow-lg); overflow: hidden;
+  display: flex; flex-direction: column; max-height: 90vh;
 }
 .bm-modal__header { display: flex; align-items: center; justify-content: space-between;
   padding: var(--bm-space-5) var(--bm-space-6); border-bottom: 1px solid var(--bm-border); }
-.bm-modal__body   { padding: var(--bm-space-6); }
+.bm-modal__body   { padding: var(--bm-space-6); overflow-y: auto; flex: 1; min-height: 0; }
 .bm-modal__footer { display: flex; justify-content: flex-end; gap: var(--bm-space-3);
   padding: var(--bm-space-4) var(--bm-space-6); border-top: 1px solid var(--bm-border);
   background: var(--bm-surface-2); }

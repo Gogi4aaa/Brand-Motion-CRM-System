@@ -20,25 +20,13 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/team", label: "Екип", icon: "team" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const { invoices, currentUser, signOut } = useStore();
   const collected = invoices.filter((i) => i.status === "paid").reduce((a, b) => a + b.amount, 0);
 
   return (
-    <aside
-      style={{
-        background: "var(--bm-surface)",
-        borderRight: "1px solid var(--bm-border)",
-        display: "flex",
-        flexDirection: "column",
-        padding: "var(--bm-space-4)",
-        gap: "var(--bm-space-5)",
-        position: "sticky",
-        top: 0,
-        height: "100vh",
-      }}
-    >
+    <aside className={"bm-sidebar" + (open ? " bm-sidebar--open" : "")}>
       <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", padding: "var(--bm-space-2)" }}>
         <div
           style={{
@@ -75,7 +63,7 @@ export function Sidebar() {
         {NAV.filter((item) => canAccess(currentUser.level, item.href.replace("/", ""))).map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
-            <Link key={item.href} href={item.href} className={"bm-nav__item" + (active ? " bm-nav__item--active" : "")}>
+            <Link key={item.href} href={item.href} onClick={onClose} className={"bm-nav__item" + (active ? " bm-nav__item--active" : "")}>
               <Icon name={item.icon} /> {item.label}
             </Link>
           );
