@@ -6,8 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Icon } from "./Icon";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { fmtDuration, AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, type ContentType } from "@/lib/data";
-import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm } from "@/lib/schemas";
+import { fmtDuration, AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, type ContentType } from "@/lib/data";
+import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm } from "@/lib/schemas";
 
 const overlay: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 40, background: "rgba(15,23,42,0.5)",
@@ -57,7 +57,36 @@ export function Modals() {
   if (modal.kind === "ad") return <AdModal />;
   if (modal.kind === "content") return <ContentModal />;
   if (modal.kind === "importScripts") return <ScriptImportModal />;
+  if (modal.kind === "cycle") return <CycleModal />;
   return <InvoiceModal />;
+}
+
+function CycleModal() {
+  const { closeModal, clients, startCycle } = useStore();
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CycleForm>({
+    resolver: zodResolver(cycleSchema),
+    defaultValues: { client: clients[0]?.id ?? "", month: monthKey(), target_count: 8 },
+  });
+  const onSubmit = (f: CycleForm) => startCycle(f.client, f.month, f.target_count);
+
+  return (
+    <Shell title="Нов месечен цикъл" onClose={closeModal}>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+          <div className="bm-alert bm-alert--info">Това ще започне цикъл за месеца и ще уведоми стратега да започне идеи и сценарии.</div>
+          <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+            <div className="bm-field"><label className="bm-label">Месец</label><input className="bm-input" type="month" {...register("month")} /><Err msg={errors.month?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Брой видеа</label><input className="bm-input" type="number" {...register("target_count", { valueAsNumber: true })} /><Err msg={errors.target_count?.message} /></div>
+          </div>
+        </div>
+        <div className="bm-modal__footer">
+          <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
+          <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>Започни цикъл</button>
+        </div>
+      </form>
+    </Shell>
+  );
 }
 
 function ClientModal() {
@@ -447,7 +476,7 @@ function ContentModal() {
 interface ImportRow { title: string; script: string; include: boolean }
 
 function ScriptImportModal() {
-  const { closeModal, clients, importScripts } = useStore();
+  const { closeModal, clients, importScripts, cycles } = useStore();
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
   const [type, setType] = useState<ContentType>("reel");
@@ -476,9 +505,10 @@ function ScriptImportModal() {
   };
 
   const kept = rows.filter((r) => r.include && r.title.trim());
+  const openCycle = cycles.find((c) => c.client === clientId && c.phase !== "published");
   const create = () => {
     if (!clientId || kept.length === 0) return;
-    importScripts(clientId, type, startStage, kept.map((r) => ({ title: r.title.trim(), script: r.script })));
+    importScripts(clientId, type, startStage, kept.map((r) => ({ title: r.title.trim(), script: r.script })), openCycle?.id);
   };
 
   return (

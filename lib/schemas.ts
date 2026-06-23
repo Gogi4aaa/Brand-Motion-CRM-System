@@ -85,6 +85,13 @@ export const contentItemSchema = z.object({
 });
 export type ContentItemForm = z.infer<typeof contentItemSchema>;
 
+export const cycleSchema = z.object({
+  client: z.string().min(1, "Избери клиент"),
+  month: z.string().trim().min(1, "Избери месец"),
+  target_count: z.number({ message: "Въведи число" }).min(1, "Поне 1 видео"),
+});
+export type CycleForm = z.infer<typeof cycleSchema>;
+
 export const invoiceSchema = z.object({
   client: z.string().min(1, "Pick a client"),
   amount: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),

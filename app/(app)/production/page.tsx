@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useStore } from "@/components/store";
-import { clientsById, contentTypeMeta, PRODUCTION_STAGES } from "@/lib/data";
+import { clientsById, contentTypeMeta, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
-  const { contentItems, clients, currentUser, advanceStage, openModal } = useStore();
+  const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal } = useStore();
   const canImport = currentUser.level === "admin" || currentUser.level === "manager";
+  const activeCycles = cycles.filter((c) => c.phase !== "published");
   const byId = clientsById(clients);
   const [clientFilter, setClientFilter] = useState("all");
   const [mine, setMine] = useState(false);
@@ -42,6 +43,45 @@ export default function ProductionPage() {
           </select>
         </div>
       </div>
+
+      {canImport && (
+        <div className="bm-card">
+          <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)" }}>
+              <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>Месечни цикли — къде сме с всеки клиент</div>
+              <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "cycle" })}>+ Нов цикъл</button>
+            </div>
+            {activeCycles.length === 0 ? (
+              <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма активни цикли. Започни цикъл, за да задвижиш идеи и сценарии за клиент.</div>
+            ) : (
+              activeCycles.map((cy) => {
+                const phaseIdx = CYCLE_PHASES.findIndex((p) => p.key === cy.phase);
+                const next = phaseIdx < CYCLE_PHASES.length - 1 ? CYCLE_PHASES[phaseIdx + 1] : null;
+                const done = contentItems.filter((ci) => ci.cycle_id === cy.id && ci.published).length;
+                return (
+                  <div key={cy.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap", borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-3)" }}>
+                    <div style={{ minWidth: 160 }}>
+                      <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{byId[cy.client]?.name || cy.client}</div>
+                      <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{monthLabel(cy.month)} · {cy.phase === "production" || cy.phase === "published" ? `${done}/${cy.target_count} готови` : `${cy.target_count} видеа`}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
+                      {CYCLE_PHASES.map((p, i) => (
+                        <span key={p.key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "var(--bm-text-xs)", fontWeight: i === phaseIdx ? 700 : 400, color: i <= phaseIdx ? "var(--bm-text)" : "var(--bm-text-subtle)" }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: i <= phaseIdx ? p.dot : "var(--bm-border-strong)" }} />
+                          {p.label}
+                        </span>
+                      ))}
+                    </div>
+                    {next ? (
+                      <button className="bm-btn bm-btn--primary" style={{ fontSize: "var(--bm-text-xs)", padding: "4px 10px" }} onClick={() => advanceCycle(cy.id, next.key)}>→ {next.label}</button>
+                    ) : <span />}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: "var(--bm-space-3)", overflowX: "auto", paddingBottom: "var(--bm-space-3)" }}>
         {PRODUCTION_STAGES.map((col) => {

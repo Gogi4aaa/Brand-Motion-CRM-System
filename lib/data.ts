@@ -361,6 +361,7 @@ export interface ContentItem {
   title: string;
   notes: string;
   script?: string; // per-video script body (imported from .docx, editable in-app)
+  cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
   notion_url: string;
   published?: boolean;
   current_stage?: string;
@@ -402,6 +403,34 @@ export const CONTENT_PACKAGES: ContentPackage[] = [
   { id: "pro", label: "Про — 24 видеа/мес", items: [{ type: "reel", count: 12 }, { type: "post", count: 8 }, { type: "promo", count: 4 }] },
 ];
 export const packageItemCount = (pkg: ContentPackage) => pkg.items.reduce((n, i) => n + i.count, 0);
+
+// ---- Monthly content cycle (per client) ----
+export type CyclePhase = "ideas" | "scripts" | "production" | "published";
+export interface ContentCycle {
+  id: string;
+  client: string; // client id
+  month: string; // 'YYYY-MM'
+  target_count: number;
+  phase: CyclePhase;
+}
+// Each phase maps to the production role that owns it — used to notify the right
+// person when a cycle advances ('' = nobody to notify).
+export const CYCLE_PHASES: { key: CyclePhase; label: string; role: string; dot: string }[] = [
+  { key: "ideas", label: "Идеи", role: "strategy", dot: "var(--bm-info-500)" },
+  { key: "scripts", label: "Сценарии", role: "script", dot: "var(--bm-brand-400)" },
+  { key: "production", label: "Продукция", role: "camera", dot: "var(--bm-warning-500)" },
+  { key: "published", label: "Публикувано", role: "", dot: "var(--bm-success-500)" },
+];
+export const cyclePhaseMeta = (p: CyclePhase) => CYCLE_PHASES.find((x) => x.key === p) || CYCLE_PHASES[0];
+
+const BG_MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+// Current month key, e.g. "2026-06".
+export const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+// "2026-06" -> "юни 2026".
+export const monthLabel = (key: string) => {
+  const [y, m] = key.split("-").map(Number);
+  return `${BG_MONTHS[(m || 1) - 1]} ${y}`;
+};
 
 export const TASK_COLUMNS: { key: TaskStatus; title: string; dot: string }[] = [
   { key: "todo", title: "To do", dot: "var(--bm-slate-400)" },

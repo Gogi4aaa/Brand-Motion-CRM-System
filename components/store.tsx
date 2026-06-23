@@ -18,7 +18,11 @@ import {
   ROLE_LABELS,
   ONBOARDING_TASKS,
   CONTENT_PACKAGES,
+  packageItemCount,
   contentTypeMeta,
+  cyclePhaseMeta,
+  monthKey,
+  monthLabel,
   type AccessRole,
   type StageStatus,
   type Client,
@@ -36,10 +40,12 @@ import {
   type SocialPost,
   type ContentItem,
   type ContentType,
+  type ContentCycle,
+  type CyclePhase,
   type ClientConnection,
   type ChannelProvider,
 } from "@/lib/data";
-import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm } from "@/lib/schemas";
+import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, CycleForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
 
 export interface CurrentUser { name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
@@ -63,6 +69,7 @@ export type Modal =
   | { kind: "content"; mode: "create"; clientId: string; date: string }
   | { kind: "content"; mode: "edit"; item: ContentItem }
   | { kind: "importScripts" }
+  | { kind: "cycle" }
   | { kind: "confirm"; title: string; message: string; confirmLabel: string; onConfirm: () => void }
   | null;
 
@@ -82,6 +89,7 @@ interface Store {
   adDrafts: AdDraft[];
   socialPosts: SocialPost[];
   contentItems: ContentItem[];
+  cycles: ContentCycle[];
   clientConnections: ClientConnection[];
   currentUser: CurrentUser;
   loading: boolean;
@@ -99,7 +107,9 @@ interface Store {
   addContentItem: (clientId: string, f: ContentItemForm) => void;
   updateContentItem: (id: string, f: ContentItemForm) => void;
   deleteContentItem: (id: string) => void;
-  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[]) => void;
+  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string) => void;
+  startCycle: (clientId: string, month: string, targetCount: number) => void;
+  advanceCycle: (cycleId: string, toPhase: CyclePhase) => void;
   scheduleContent: (id: string, date: string | null) => void;
   setClientConnection: (clientId: string, provider: ChannelProvider, connected: boolean) => void;
   advanceStage: (itemId: string, toStage: string) => void;
@@ -166,6 +176,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [adDrafts, setAdDrafts] = useState<AdDraft[]>(seedAdDrafts);
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>(seedSocialPosts);
   const [contentItems, setContentItems] = useState<ContentItem[]>(seedContentItems);
+  const [cycles, setCycles] = useState<ContentCycle[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
   const [loading, setLoading] = useState(supabaseConfigured);
@@ -177,7 +188,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const sb = createClient();
-        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth] = await Promise.all([
+        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc] = await Promise.all([
           sb.from("clients").select("*").order("created_at"),
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
@@ -192,6 +203,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("content_items").select("*").order("date"),
           sb.from("client_connections").select("*"),
           sb.auth.getUser(),
+          sb.from("content_cycles").select("*").order("created_at", { ascending: false }),
         ]);
         if (cancelled) return;
         if (c.data) setClients(c.data as Client[]);
@@ -206,6 +218,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (ad.data) setAdDrafts((ad.data as (Omit<AdDraft, "client"> & { client_id: string | null })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (sp.data) setSocialPosts(sp.data as SocialPost[]);
         if (ci.data) setContentItems((ci.data as (Omit<ContentItem, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
+        if (cyc.data) setCycles((cyc.data as (Omit<ContentCycle, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (cc.data) setClientConnections(cc.data as ClientConnection[]);
         const uid = auth.data.user?.id;
         if (uid) {
@@ -349,9 +362,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [logActivity]);
 
+  // ---- Monthly content cycle ----
+  // Open a client's cycle for a month at the 'ideas' phase and ping the
+  // strategist to start. This replaces dumping empty cards on the board.
+  const startCycle = useCallback((clientId: string, month: string, targetCount: number) => {
+    const client = clients.find((c) => c.id === clientId);
+    const id = `cy-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    const row = { id, client_id: clientId, month, target_count: targetCount, phase: "ideas" as CyclePhase };
+    setCycles((list) => [{ id, client: clientId, month, target_count: targetCount, phase: "ideas" }, ...list]);
+    sb()?.from("content_cycles").insert(row).then(({ error }) => error && console.error("[BrandMotion] startCycle failed:", error));
+    const strategist = team.find((m) => (m.roles || []).includes("strategy"))?.initials || client?.owner || "";
+    if (strategist) notify(strategist, `Започни идеи и сценарии за ${client?.name || clientId} (${monthLabel(month)}): ${targetCount} видеа`, { entity_type: "cycle", entity_id: id });
+    logActivity(`стартира месечен цикъл за ${client?.name || clientId} (${monthLabel(month)})`);
+  }, [clients, team, notify, logActivity]);
+
+  // Move a cycle to a new phase and notify the role that owns it.
+  const advanceCycle = useCallback((cycleId: string, toPhase: CyclePhase) => {
+    let clientId = "";
+    setCycles((list) => list.map((cy) => { if (cy.id === cycleId) clientId = cy.client; return cy.id === cycleId ? { ...cy, phase: toPhase } : cy; }));
+    sb()?.from("content_cycles").update({ phase: toPhase }).eq("id", cycleId).then(({ error }) => error && console.error("[BrandMotion] advanceCycle failed:", error));
+    const client = clients.find((c) => c.id === clientId);
+    const role = cyclePhaseMeta(toPhase).role;
+    const owner = role ? (team.find((m) => (m.roles || []).includes(role))?.initials || "") : "";
+    if (owner) notify(owner, `${client?.name || clientId}: време е за „${cyclePhaseMeta(toPhase).label}“`, { entity_type: "cycle", entity_id: cycleId });
+    logActivity(`придвижи цикъл на ${client?.name || clientId} към „${cyclePhaseMeta(toPhase).label}“`);
+  }, [clients, team, notify, logActivity]);
+
   // Convert a won lead into a fully set-up client: client record + brand profile
-  // stub + onboarding checklist (tasks) + a package's worth of backlog videos.
-  // Idempotent via leads.client_id so a lead is never onboarded twice.
+  // stub + onboarding checklist (tasks) + this month's content cycle (no empty
+  // cards — videos appear when scripts are imported). Idempotent via client_id.
   const onboardLead = useCallback((leadId: string, f: OnboardForm) => {
     const lead = leads.find((l) => l.id === leadId);
     const pkg = CONTENT_PACKAGES.find((p) => p.id === f.packageId) || CONTENT_PACKAGES[0];
@@ -369,24 +408,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setTasks((list) => [...list, ...taskRows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("tasks").insert(taskRows).then(({ error }) => error && console.error("[BrandMotion] onboard tasks failed:", error));
 
-    // 3. Seed the backlog with a month of videos from the chosen package.
-    const contentRows = pkg.items.flatMap((it) =>
-      Array.from({ length: it.count }, (_, n) => ({ type: it.type, n: n + 1 }))
-    ).map((v, i) => ({
-      id: `ct-${now}-${i}`, client_id: id, date: null as string | null, type: v.type,
-      title: `${contentTypeMeta(v.type).label} #${v.n}`, notes: "", script: "", notion_url: "",
-      published: false, current_stage: "strategy", stages: defaultStages(team, f.editor || "", currentUser.initials),
-    }));
-    setContentItems((list) => [...list, ...contentRows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
-    sb()?.from("content_items").insert(contentRows).then(({ error }) => error && console.error("[BrandMotion] onboard content failed:", error));
+    // 3. Open this month's content cycle at 'ideas' (notifies the strategist to
+    //    start). No empty cards — the videos appear when scripts are imported.
+    startCycle(id, monthKey(), packageItemCount(pkg));
 
     // 4. Link the lead to its new client (idempotency guard).
     setLeads((list) => list.map((l) => (l.id === leadId ? { ...l, stage: "won", client_id: id } : l)));
     sb()?.from("leads").update({ stage: "won", client_id: id }).eq("id", leadId).then(({ error }) => error && console.error("[BrandMotion] onboard link failed:", error));
 
-    logActivity(`включи клиент ${f.name} · ${taskRows.length} задачи, ${contentRows.length} видеа`);
+    logActivity(`включи клиент ${f.name} · ${taskRows.length} задачи`);
     setModal(null);
-  }, [leads, clients, team, currentUser.initials, logActivity]);
+  }, [leads, clients, team, currentUser.initials, startCycle, logActivity]);
 
   // ---- Campaigns ----
   const addCampaign = useCallback((f: CampaignForm) => {
@@ -508,7 +540,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // `startStage` with the prior stages pre-marked done (strategy + script were
   // written in the doc). Reuses defaultStages so the camera/editor owners are
   // auto-assigned — i.e. the work is distributed to the team on confirm.
-  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[]) => {
+  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string) => {
     if (!videos.length) return;
     const client = clients.find((c) => c.id === clientId);
     const order = PRODUCTION_STAGES.map((s) => s.key);
@@ -519,13 +551,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const idx = order.indexOf(s.key);
         return { ...s, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
       });
-      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, notion_url: "", published: false, current_stage: order[ti], stages };
+      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, cycle_id: cycleId || null, notion_url: "", published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
     logActivity(`импортира ${videos.length} сценария за ${client?.name || clientId}`);
+    // Scripts are in → flip this client's open cycle into production.
+    if (cycleId) advanceCycle(cycleId, "production");
     setModal(null);
-  }, [clients, team, currentUser.initials, logActivity]);
+  }, [clients, team, currentUser.initials, advanceCycle, logActivity]);
 
   // ---- Production pipeline ----
   const persistItem = (id: string, patch: Record<string, unknown>) =>
@@ -751,8 +785,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value: Store = {
-    clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, currentUser, loading, usingMock: !supabaseConfigured, signOut,
-    addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, addCampaign, updateCampaign, deleteCampaign, logTime,
+    clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, currentUser, loading, usingMock: !supabaseConfigured, signOut,
+    addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign, logTime,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
     advanceStage, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole,
