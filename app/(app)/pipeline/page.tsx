@@ -38,7 +38,7 @@ export default function PipelinePage() {
         <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "lead", mode: "create" })}><Icon name="plus" /> Нова сделка</button>
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
+      <section className="bm-stats">
         <Kpi label="Активни сделки" value={fmtK(sum(open))} delta={`${open.length} активни сделки`} />
         <Kpi label="Спечелени" value={fmtK(sum(won))} deltaCls="bm-stat__delta--up" delta={`${won.length} затворени`} />
         <Kpi label="Успеваемост" value={winRate + "%"} delta={`${closed} затворени сделки`} />

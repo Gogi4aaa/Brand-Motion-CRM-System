@@ -49,7 +49,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
+      <section className="bm-stats">
         <Kpi label="Месечен приход" value={fmtK(mrr)} deltaCls="bm-text-subtle" delta={`${activeClients} активни клиенти`} />
         <Kpi label="Събрано" value={fmtK(collected)} deltaCls="bm-stat__delta--up" delta="платени фактури" />
         <Kpi label="Активни сделки" value={fmtK(openPipeline)} deltaCls="bm-text-subtle" delta={`${openLeads.length} активни сделки`} />

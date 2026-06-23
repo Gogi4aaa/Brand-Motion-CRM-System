@@ -36,7 +36,7 @@ function Notifications() {
         )}
       </button>
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 340, maxHeight: 420, overflowY: "auto", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", boxShadow: "var(--bm-shadow-lg)", zIndex: 20 }}>
+        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: "min(340px, calc(100vw - 24px))", maxHeight: "min(70vh, 440px)", overflowY: "auto", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", boxShadow: "var(--bm-shadow-lg)", zIndex: 20 }}>
           <div style={{ position: "sticky", top: 0, background: "var(--bm-surface)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-3) var(--bm-space-4)", borderBottom: "1px solid var(--bm-border)" }}>
             <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>Известия</span>
             {unread > 0 && <button className="bm-btn bm-btn--ghost" style={{ fontSize: "var(--bm-text-xs)", padding: "2px 6px" }} onClick={() => markAllNotificationsRead()}>Отбележи всички</button>}
@@ -97,7 +97,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       <ThemeToggle />
       <Notifications />
       <button className="bm-btn bm-btn--primary" onClick={() => openModal(isTasks ? { kind: "task", mode: "create" } : { kind: "invoice", mode: "create" })}>
-        <Icon name="plus" /> {isTasks ? "Нова задача" : "Нова фактура"}
+        <Icon name="plus" /> <span className="bm-hide-xs">{isTasks ? "Нова задача" : "Нова фактура"}</span>
       </button>
     </header>
   );

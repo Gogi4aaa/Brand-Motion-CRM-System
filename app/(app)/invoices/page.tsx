@@ -39,7 +39,7 @@ export default function InvoicesPage() {
         <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "invoice", mode: "create" })}><Icon name="plus" /> Нова фактура</button>
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
+      <section className="bm-stats">
         <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls="bm-text-subtle" delta={`${outstanding.length} отворени фактури`} />
         <Kpi label="Просрочени" value={fmtK(sum(overdue))} color="var(--bm-danger-600)" deltaCls="bm-stat__delta--down" delta={`${overdue.length} изискват внимание`} />
         <Kpi label="Платени този месец" value={fmtK(sum(paid))} color="var(--bm-success-600)" deltaCls="bm-stat__delta--up" delta="▲ 23%" />

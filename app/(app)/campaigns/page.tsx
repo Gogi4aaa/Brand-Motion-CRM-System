@@ -53,7 +53,7 @@ export default function CampaignsPage() {
 
       {tab === "campaigns" && (
         <>
-          <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
+          <section className="bm-stats">
             <Kpi label="Активни кампании" value={active.length} delta={`от общо ${campaigns.length}`} />
             <Kpi label="Активен бюджет" value={fmtK(activeBudget)} delta="в ход" />
             <Kpi label="Общ управляван бюджет" value={fmtK(budget)} delta="всички кампании" />
@@ -93,7 +93,7 @@ export default function CampaignsPage() {
               <div>Няма свързан Meta акаунт. Свържи го от „Социални → Свързани акаунти“ за публикуване — можеш да правиш чернови и сега.</div>
             </div>
           )}
-          <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
+          <section className="bm-stats">
             <Kpi label="Реклами" value={adDrafts.length} delta={`${publishedAds.length} публикувани`} />
             <Kpi label="Общ бюджет" value={fmtFull(adBudget)} delta="по всички чернови" />
             <Kpi label="Meta акаунт" value={metaConnected ? "Свързан" : "—"} delta={metaConnected ? "готов" : "не е свързан"} />

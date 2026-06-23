@@ -100,8 +100,20 @@ a {
   .bm-show-mobile { display: block; }
 }
 
-/* Smaller phones: tighten headings */
+/* Hide an element on very small screens (e.g. button labels, keep the icon) */
+.bm-hide-xs { display: inline; }
+@media (max-width: 480px) { .bm-hide-xs { display: none; } }
+
+/* KPI stat cards: auto-fit on desktop, compact 2-up on phones */
+.bm-stats { display: grid; gap: var(--bm-space-4); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+/* Smaller phones: tighten headings + stat cards */
 @media (max-width: 560px) {
   .bm h1 { font-size: var(--bm-text-xl); }
   .bm h2 { font-size: var(--bm-text-lg); }
+  .bm-stats { grid-template-columns: 1fr 1fr; gap: var(--bm-space-3); }
+  .bm-stat { padding: var(--bm-space-3); }
+  .bm-stat__value { font-size: var(--bm-text-xl); }
+  .bm-stat__label { font-size: 10px; }
+  .bm-stat__delta { font-size: 10px; }
 }

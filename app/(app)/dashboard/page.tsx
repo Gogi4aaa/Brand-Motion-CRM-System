@@ -60,7 +60,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--bm-space-4)" }}>
+      <section className="bm-stats">
         {showMoney ? (
           <>
             <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-stat__delta--up" delta="▲ 12% спрямо м.м." />
