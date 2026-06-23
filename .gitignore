@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# agent tooling (installed skills — reinstallable, not part of the app)
+.agents/
+skills-lock.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

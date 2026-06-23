@@ -1,0 +1,411 @@
+// Mock data + display helpers for the BrandMotion CRM frontend.
+// Ported from the agency-workspace prototype; swap this module for real
+// API/DB calls when the backend lands.
+
+export type Health = "good" | "watch" | "risk";
+export type InvStatus = "paid" | "pending" | "overdue" | "draft";
+export type TaskStatus = "todo" | "inprogress" | "review" | "done";
+export type Priority = "high" | "medium" | "low";
+
+export interface Client {
+  id: string;
+  name: string;
+  initials: string;
+  industry: string;
+  status: "Active" | "At risk" | "Onboarding";
+  mrr: number;
+  owner: string;
+  health: Health;
+  note: string;
+  editor?: string; // initials of this brand's default video editor
+  analysis_status?: AnalysisStatus;
+  analysis_notes?: string;
+  // ---- Brand profile (filled during onboarding) ----
+  brand_voice?: string;
+  target_audience?: string;
+  brand_assets_url?: string;
+}
+
+export type AnalysisStatus = "not_started" | "in_progress" | "done";
+export const analysisStatusMeta = (s: AnalysisStatus) =>
+  ({
+    not_started: { cls: "bm-badge--neutral", label: "Не е започнат" },
+    in_progress: { cls: "bm-badge--warning", label: "В процес" },
+    done: { cls: "bm-badge--success", label: "Готов" },
+  }[s]);
+
+export interface Invoice {
+  id: string;
+  client: string;
+  amount: number;
+  status: InvStatus;
+  issued: string;
+  due: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  client: string;
+  status: TaskStatus;
+  priority: Priority;
+  assignee: string;
+  due: string;
+  progress: number;
+  time_logged?: number; // seconds
+}
+
+export type CampaignStatus = "planning" | "active" | "paused" | "completed";
+
+export interface Campaign {
+  id: string;
+  name: string;
+  client: string; // client id
+  status: CampaignStatus;
+  channel: string;
+  budget: number;
+  starts: string;
+  ends: string;
+}
+
+export const campaignStatusMeta = (s: CampaignStatus) =>
+  ({
+    planning: { cls: "bm-badge--info", label: "Планиране" },
+    active: { cls: "bm-badge--success", label: "Активна" },
+    paused: { cls: "bm-badge--warning", label: "На пауза" },
+    completed: { cls: "bm-badge--neutral", label: "Завършена" },
+  }[s]);
+
+export const fmtDuration = (sec: number) => {
+  if (!sec) return "0m";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+};
+
+export const OWNERS: Record<string, string> = {
+  AK: "Anna Klein",
+  ML: "Marco Lopez",
+  JD: "Jamie Doe",
+  SR: "Sara Rivera",
+};
+
+export type Role = "admin" | "member";
+
+// ---- Access levels (RBAC) ----
+export type AccessRole = "admin" | "manager" | "worker";
+
+export const ROLE_LABELS: Record<AccessRole, string> = {
+  admin: "Администратор",
+  manager: "Мениджър",
+  worker: "Сътрудник",
+};
+
+// Which app sections each level can open. Workers see only their own work
+// (tasks/content/production) — no money, no clients list, no sales/ads/team.
+export const NAV_ACCESS: Record<string, AccessRole[]> = {
+  dashboard: ["admin", "manager", "worker"],
+  tasks: ["admin", "manager", "worker"],
+  calendar: ["admin", "manager", "worker"],
+  production: ["admin", "manager", "worker"],
+  clients: ["admin", "manager"],
+  pipeline: ["admin", "manager"],
+  campaigns: ["admin", "manager"],
+  analytics: ["admin", "manager"],
+  social: ["admin", "manager"],
+  team: ["admin", "manager"],
+  invoices: ["admin"],
+};
+
+export const canAccess = (role: AccessRole, key: string) =>
+  (NAV_ACCESS[key] || ["admin"]).includes(role);
+
+// Map a pathname to its access key (e.g. /clients/123 -> clients).
+export const sectionForPath = (path: string) => {
+  const seg = path.split("/").filter(Boolean)[0] || "dashboard";
+  return seg;
+};
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  initials: string;
+  role: AccessRole;
+  roles?: string[]; // production role tags: strategy/script/camera/editor/review
+}
+
+// ---- Video production pipeline ----
+export type StageStatus = "todo" | "doing" | "done" | "blocked";
+export interface StageState {
+  key: string;
+  assignee: string; // initials
+  status: StageStatus;
+}
+
+export const PRODUCTION_ROLES: { id: string; label: string }[] = [
+  { id: "strategy", label: "Стратегия" },
+  { id: "script", label: "Сценарий" },
+  { id: "camera", label: "Оператор" },
+  { id: "editor", label: "Монтажист" },
+  { id: "review", label: "Преглед" },
+];
+
+export const PRODUCTION_STAGES: { key: string; label: string; role: string; dot: string }[] = [
+  { key: "strategy", label: "Идеи и стратегия", role: "strategy", dot: "var(--bm-info-500)" },
+  { key: "script", label: "Сценарии", role: "script", dot: "var(--bm-brand-400)" },
+  { key: "shoot", label: "Заснемане", role: "camera", dot: "var(--bm-warning-500)" },
+  { key: "edit", label: "Монтаж", role: "editor", dot: "#9D2667" },
+  { key: "review", label: "Преглед", role: "review", dot: "var(--bm-brand-600)" },
+  { key: "publish", label: "Публикуване", role: "review", dot: "var(--bm-success-500)" },
+];
+
+export const stageMeta = (key: string) => PRODUCTION_STAGES.find((s) => s.key === key) || PRODUCTION_STAGES[0];
+export const stageStatusMeta = (s: StageStatus) =>
+  ({
+    todo: { cls: "bm-badge--neutral", label: "Чакащо" },
+    doing: { cls: "bm-badge--info", label: "В процес" },
+    done: { cls: "bm-badge--success", label: "Готово" },
+    blocked: { cls: "bm-badge--danger", label: "Блокирано" },
+  }[s]);
+
+// Build default per-stage assignees: role default from the team, editor stage
+// from the client's editor; falls back to the current user.
+export function defaultStages(
+  team: TeamMember[],
+  clientEditor: string,
+  fallback: string
+): StageState[] {
+  const byRole = (role: string) => team.find((m) => (m.roles || []).includes(role))?.initials;
+  return PRODUCTION_STAGES.map((s) => {
+    let assignee = "";
+    if (s.role === "editor") assignee = clientEditor || byRole("editor") || fallback;
+    else assignee = byRole(s.role) || fallback;
+    return { key: s.key, assignee, status: "todo" as StageStatus };
+  });
+}
+
+export interface Comment {
+  id: string;
+  entity_type: "client" | "task";
+  entity_id: string;
+  author_name: string;
+  author_initials: string;
+  body: string;
+  created_at: string;
+}
+
+// Fallback team for mock mode (real members come from the profiles table).
+export const seedTeam: TeamMember[] = [];
+
+export const clients: Client[] = [];
+
+export const invoices: Invoice[] = [];
+
+export const tasks: Task[] = [];
+
+// ---- Display helpers ----
+export const fmtK = (n: number) =>
+  "$" + (Math.round(n / 100) / 10).toFixed(1).replace(/\.0$/, "") + "k";
+export const fmtFull = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
+
+export const clientsById = (list: Client[]) =>
+  Object.fromEntries(list.map((c) => [c.id, c])) as Record<string, Client>;
+
+export const healthMeta = (h: Health) =>
+  h === "good"
+    ? { cls: "bm-badge--success", label: "Стабилен" }
+    : h === "watch"
+    ? { cls: "bm-badge--warning", label: "Наблюдение" }
+    : { cls: "bm-badge--danger", label: "Риск" };
+
+export const prioMeta = (p: Priority) =>
+  p === "high"
+    ? { cls: "bm-badge--danger", label: "Висок" }
+    : p === "medium"
+    ? { cls: "bm-badge--warning", label: "Среден" }
+    : { cls: "bm-badge--neutral", label: "Нисък" };
+
+export const invStatusMeta = (s: InvStatus) =>
+  ({
+    paid: { cls: "bm-badge--success", label: "Платена" },
+    pending: { cls: "bm-badge--warning", label: "Чакаща" },
+    overdue: { cls: "bm-badge--danger", label: "Просрочена" },
+    draft: { cls: "bm-badge--info", label: "Чернова" },
+  }[s]);
+
+export const taskStatusLabel = (s: TaskStatus) =>
+  ({ todo: "За правене", inprogress: "В процес", review: "За преглед", done: "Готово" }[s]);
+
+export type LeadStage = "new" | "contacted" | "proposal" | "won" | "lost";
+
+export interface Lead {
+  id: string;
+  name: string;
+  contact: string;
+  value: number;
+  stage: LeadStage;
+  owner: string;
+  client_id?: string | null; // set once the won lead is onboarded into a client
+}
+
+export const PIPELINE_STAGES: { key: LeadStage; title: string; dot: string }[] = [
+  { key: "new", title: "Нови", dot: "var(--bm-slate-400)" },
+  { key: "contacted", title: "Свързани", dot: "var(--bm-info-500)" },
+  { key: "proposal", title: "Оферта", dot: "var(--bm-warning-500)" },
+  { key: "won", title: "Спечелени", dot: "var(--bm-success-500)" },
+  { key: "lost", title: "Загубени", dot: "var(--bm-danger-500)" },
+];
+
+export const leadStageMeta = (s: LeadStage) =>
+  ({
+    new: { cls: "bm-badge--neutral", label: "Нов" },
+    contacted: { cls: "bm-badge--info", label: "Свързан" },
+    proposal: { cls: "bm-badge--warning", label: "Оферта" },
+    won: { cls: "bm-badge--success", label: "Спечелен" },
+    lost: { cls: "bm-badge--danger", label: "Загубен" },
+  }[s]);
+
+export const seedLeads: Lead[] = [];
+
+export const seedCampaigns: Campaign[] = [];
+
+// ---- Per-client channel connections (organic posting) ----
+export type ChannelProvider = "meta" | "tiktok";
+export interface ClientConnection {
+  client_id: string;
+  provider: ChannelProvider;
+  connected: boolean;
+  account_label: string;
+}
+export const CLIENT_CHANNELS: { id: ChannelProvider; name: string; blurb: string }[] = [
+  { id: "meta", name: "Facebook & Instagram", blurb: "Постове и рийлс към Страницата и Instagram на клиента (органик)." },
+  { id: "tiktok", name: "TikTok", blurb: "Качване и насрочване на видеа към TikTok акаунта на клиента." },
+];
+
+// ---- Phase 5: integrations ----
+export type Provider = "meta_ads" | "instagram" | "tiktok" | "youtube";
+
+export interface Integration {
+  provider: Provider;
+  connected: boolean;
+  account_label: string;
+}
+
+export const PROVIDERS: { id: Provider; name: string; blurb: string }[] = [
+  { id: "meta_ads", name: "Meta Ads", blurb: "Създаване и публикуване на реклами към Meta бизнес акаунтите на клиентите." },
+  { id: "instagram", name: "Instagram", blurb: "Публикуване на рийлс и постове към свързани Instagram акаунти." },
+  { id: "tiktok", name: "TikTok", blurb: "Качване и насрочване на видео в TikTok." },
+  { id: "youtube", name: "YouTube", blurb: "Публикуване на видео и shorts в YouTube канали." },
+];
+
+export type AdStatus = "draft" | "ready" | "published";
+export interface AdDraft {
+  id: string;
+  client: string | null;
+  name: string;
+  objective: string;
+  budget: number;
+  audience: string;
+  primary_text: string;
+  headline: string;
+  status: AdStatus;
+}
+export const AD_OBJECTIVES = ["awareness", "traffic", "engagement", "leads", "sales"];
+export const AD_OBJECTIVE_LABELS: Record<string, string> = {
+  awareness: "Разпознаваемост",
+  traffic: "Трафик",
+  engagement: "Ангажираност",
+  leads: "Запитвания",
+  sales: "Продажби",
+};
+export const adStatusMeta = (s: AdStatus) =>
+  ({
+    draft: { cls: "bm-badge--neutral", label: "Чернова" },
+    ready: { cls: "bm-badge--info", label: "Готова" },
+    published: { cls: "bm-badge--success", label: "Публикувана" },
+  }[s]);
+
+export type PostStatus = "draft" | "scheduled" | "published";
+export interface SocialPost {
+  id: string;
+  caption: string;
+  media_url: string;
+  platforms: string[];
+  scheduled_for: string;
+  status: PostStatus;
+}
+export const SOCIAL_PLATFORMS: { id: string; name: string }[] = [
+  { id: "instagram", name: "Instagram" },
+  { id: "tiktok", name: "TikTok" },
+  { id: "youtube", name: "YouTube" },
+];
+export const postStatusMeta = (s: PostStatus) =>
+  ({
+    draft: { cls: "bm-badge--neutral", label: "Чернова" },
+    scheduled: { cls: "bm-badge--warning", label: "Насрочен" },
+    published: { cls: "bm-badge--success", label: "Публикуван" },
+  }[s]);
+
+export const seedIntegrations: Integration[] = PROVIDERS.map((p) => ({ provider: p.id, connected: false, account_label: "" }));
+export const seedAdDrafts: AdDraft[] = [];
+export const seedSocialPosts: SocialPost[] = [];
+
+// ---- Content calendar ----
+export type ContentType = "promo" | "info" | "reel" | "project" | "post";
+
+export interface ContentItem {
+  id: string;
+  client: string; // client id
+  date: string | null; // ISO yyyy-mm-dd, or null when unscheduled (backlog)
+  type: ContentType;
+  title: string;
+  notes: string;
+  script?: string; // per-video script body (imported from .docx, editable in-app)
+  notion_url: string;
+  published?: boolean;
+  current_stage?: string;
+  stages?: StageState[];
+}
+
+// bg/border/text colours pulled from the design-system token scales.
+export const CONTENT_TYPES: { id: ContentType; label: string; bg: string; fg: string }[] = [
+  { id: "promo", label: "Промо", bg: "var(--bm-warning-50)", fg: "var(--bm-warning-700)" },
+  { id: "info", label: "Инфо", bg: "var(--bm-success-50)", fg: "var(--bm-success-700)" },
+  { id: "reel", label: "Рийл", bg: "#E0F2F1", fg: "#00637E" },
+  { id: "project", label: "Реализиран проект", bg: "#FCE7F0", fg: "#9D2667" },
+  { id: "post", label: "Пост", bg: "var(--bm-info-50)", fg: "var(--bm-info-700)" },
+];
+export const contentTypeMeta = (t: ContentType) =>
+  CONTENT_TYPES.find((c) => c.id === t) || CONTENT_TYPES[0];
+
+export const seedContentItems: ContentItem[] = [];
+
+// ---- New-client onboarding ----
+// Standard checklist created as tasks when a lead is converted into a client.
+export const ONBOARDING_TASKS: { title: string; priority: Priority }[] = [
+  { title: "Получи достъп до акаунти и бранд материали", priority: "high" },
+  { title: "Въвеждащо обаждане с клиента", priority: "high" },
+  { title: "Попълни бранд профил (тон, аудитория)", priority: "medium" },
+  { title: "Бизнес анализ преди старт на видеата", priority: "medium" },
+  { title: "Потвърди съдържателния план с клиента", priority: "medium" },
+];
+
+// Content packages seed the backlog with a month's worth of videos on onboarding.
+export interface ContentPackage {
+  id: string;
+  label: string;
+  items: { type: ContentType; count: number }[];
+}
+export const CONTENT_PACKAGES: ContentPackage[] = [
+  { id: "starter", label: "Стартов — 8 видеа/мес", items: [{ type: "reel", count: 4 }, { type: "post", count: 4 }] },
+  { id: "growth", label: "Растеж — 16 видеа/мес", items: [{ type: "reel", count: 8 }, { type: "post", count: 6 }, { type: "promo", count: 2 }] },
+  { id: "pro", label: "Про — 24 видеа/мес", items: [{ type: "reel", count: 12 }, { type: "post", count: 8 }, { type: "promo", count: 4 }] },
+];
+export const packageItemCount = (pkg: ContentPackage) => pkg.items.reduce((n, i) => n + i.count, 0);
+
+export const TASK_COLUMNS: { key: TaskStatus; title: string; dot: string }[] = [
+  { key: "todo", title: "To do", dot: "var(--bm-slate-400)" },
+  { key: "inprogress", title: "In progress", dot: "var(--bm-info-500)" },
+  { key: "review", title: "In review", dot: "var(--bm-warning-500)" },
+  { key: "done", title: "Done", dot: "var(--bm-success-500)" },
+];
