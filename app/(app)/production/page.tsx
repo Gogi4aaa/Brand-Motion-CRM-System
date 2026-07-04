@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useStore } from "@/components/store";
+import { ContentCalendar } from "@/components/ContentCalendar";
 import { clientsById, contentTypeMeta, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
@@ -138,8 +139,18 @@ export default function ProductionPage() {
       </div>
 
       {contentItems.length === 0 && (
-        <div className="bm-card"><div className="bm-card__body bm-text-subtle">Все още няма видеа. Добави съдържание в календара и то ще се появи тук като карта за продукция.</div></div>
+        <div className="bm-card"><div className="bm-card__body bm-text-subtle">Все още няма видеа. Добави съдържание в календара по-долу и то ще се появи тук като карта за продукция.</div></div>
       )}
+
+      {/* Контент календарът живее тук, под дъската: работниците виждат кога
+          какво излиза и в каква последователност се правят видеата. */}
+      <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-5)", display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Контент календар</h2>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Планът за месеца — кое видео кога излиза. Филтърът по клиент горе важи и за дъската, и за календара.</p>
+        </div>
+        <ContentCalendar clientId={clientFilter} onClientChange={setClientFilter} />
+      </div>
     </div>
   );
 }

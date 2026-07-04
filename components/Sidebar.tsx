@@ -12,7 +12,6 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/ideas", label: "Идеи", icon: "comment" },
   { href: "/pipeline", label: "Сделки", icon: "pipeline" },
   { href: "/clients", label: "Клиенти", icon: "clients" },
-  { href: "/calendar", label: "Съдържание", icon: "calendar" },
   { href: "/production", label: "Продукция", icon: "production" },
   { href: "/campaigns", label: "Кампании", icon: "campaign" },
   { href: "/invoices", label: "Фактури", icon: "invoices" },

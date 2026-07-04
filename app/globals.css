@@ -111,7 +111,7 @@ a {
 .bm-kcol {
   background: var(--bm-surface-2); border-radius: var(--bm-radius-lg);
   padding: var(--bm-space-3); display: flex; flex-direction: column;
-  gap: var(--bm-space-3); min-height: 240px; max-height: calc(100dvh - 220px);
+  gap: var(--bm-space-3); min-height: 420px; max-height: calc(100dvh - 150px);
 }
 .bm-kcol__list { display: flex; flex-direction: column; gap: var(--bm-space-3); overflow-y: auto; flex: 1 1 0; min-height: 0; padding-right: 2px; }
 @media (max-width: 768px) {
@@ -152,14 +152,28 @@ a {
 .bm-ai-row { display: grid; grid-template-columns: 220px 1fr auto; gap: var(--bm-space-3); align-items: end; }
 @media (max-width: 640px) { .bm-ai-row { grid-template-columns: 1fr; align-items: stretch; } }
 
-/* Phones: modals become bottom sheets (full width, capped height, scrollable
-   body) instead of a floating box that clips long forms. */
+/* Phones: modals become near-bottom sheets with breathing room around them —
+   capped height and a scrollable body instead of covering the whole screen. */
 @media (max-width: 560px) {
-  .bm-modal-overlay { padding: 0; align-items: flex-end; }
-  .bm-modal { max-width: none; max-height: 94dvh; border-radius: var(--bm-radius-xl) var(--bm-radius-xl) 0 0; }
+  .bm-modal-overlay { padding: var(--bm-space-3); padding-bottom: calc(var(--bm-space-4) + env(safe-area-inset-bottom)); align-items: flex-end; }
+  .bm-modal { max-width: none; max-height: 88dvh; border-radius: var(--bm-radius-xl); }
   .bm-modal__body { padding: var(--bm-space-4); }
   .bm-modal__header { padding: var(--bm-space-4); }
-  .bm-modal__footer { padding: var(--bm-space-3) var(--bm-space-4); padding-bottom: calc(var(--bm-space-3) + env(safe-area-inset-bottom)); }
+  .bm-modal__footer { padding: var(--bm-space-3) var(--bm-space-4); }
+}
+
+/* Content calendar (shared component): full grid on desktop; on phones the
+   cells shrink to dots and the per-day agenda list below carries the titles. */
+.cc-cell { min-height: 110px; padding: var(--bm-space-2); border-right: 1px solid var(--bm-border); border-bottom: 1px solid var(--bm-border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; background: var(--bm-surface); }
+.cc-cell--empty { background: var(--bm-slate-100); cursor: default; }
+.cc-cell--today { background: var(--bm-brand-50); }
+.cc-dots { display: none; }
+.cc-agenda { display: none; }
+@media (max-width: 768px) {
+  .cc-cell { min-height: 46px; padding: 4px; }
+  .cc-ev { display: none; }
+  .cc-dots { display: flex; gap: 3px; flex-wrap: wrap; }
+  .cc-agenda { display: flex; }
 }
 
 /* Phones: data tables keep compact one-line rows and scroll sideways inside
