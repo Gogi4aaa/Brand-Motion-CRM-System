@@ -66,7 +66,7 @@ export default function IdeasPage() {
         <div className="bm-card__header"><h3>AI идеи от бранд профила</h3></div>
         <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
           {aiError && <div className="bm-alert bm-alert--danger">{aiError}</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr auto", gap: "var(--bm-space-3)", alignItems: "end" }}>
+          <div className="bm-ai-row">
             <div className="bm-field">
               <label className="bm-label">Клиент</label>
               <select className="bm-select" value={aiClient} onChange={(e) => setAiClient(e.target.value)}>

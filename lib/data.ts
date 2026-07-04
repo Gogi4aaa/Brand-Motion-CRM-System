@@ -41,6 +41,7 @@ export interface Invoice {
   status: InvStatus;
   issued: string;
   due: string;
+  created_at?: string; // set by the DB; drives the dashboard period filter
 }
 
 export interface Task {
@@ -60,6 +61,21 @@ export interface Task {
   visibility?: "private" | "team"; // private = admin + assignee only
   content_item_id?: string | null; // set on tasks auto-created from production
   stage_key?: string | null; // which production stage spawned this task
+  created_at?: string; // set by the DB; drives the dashboard period filter
+}
+
+// Резултати от качено видео — въвеждани ръчно или дърпани автоматично.
+export interface VideoMetric {
+  id: string;
+  content_item_id: string;
+  platform: string;
+  url: string;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  source?: "manual" | "auto";
+  updated_at?: string;
 }
 
 // Private tasks are between the admin and the assignee; everything else is team-wide.
@@ -142,18 +158,22 @@ export const ROLE_LABELS: Record<AccessRole, string> = {
   worker: "Сътрудник",
 };
 
-// Which app sections each level can open. Workers see only their own work
-// (tasks/content/production) — no money, no clients list, no sales/ads/team.
+// Which app sections each level can open.
+//   admin   — everything, and the ONLY level that sees money (фактури, бюджети,
+//             сделки, приходи, възнаграждения на другите).
+//   manager — coordinates the work: tasks, production, content, team roles,
+//             social. No money and no client CRM/sales pages.
+//   worker  — only their own work (tasks/content/production).
 export const NAV_ACCESS: Record<string, AccessRole[]> = {
   dashboard: ["admin", "manager", "worker"],
   ideas: ["admin", "manager", "worker"],
   tasks: ["admin", "manager", "worker"],
   calendar: ["admin", "manager", "worker"],
   production: ["admin", "manager", "worker"],
-  clients: ["admin", "manager"],
-  pipeline: ["admin", "manager"],
-  campaigns: ["admin", "manager"],
-  analytics: ["admin", "manager"],
+  clients: ["admin"],
+  pipeline: ["admin"],
+  campaigns: ["admin"],
+  analytics: ["admin"],
   social: ["admin", "manager"],
   team: ["admin", "manager"],
   invoices: ["admin"],

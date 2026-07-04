@@ -96,8 +96,27 @@ a {
 .bm-board { display: grid; gap: var(--bm-space-3); align-items: start; }
 .bm-board--5 { grid-template-columns: repeat(5, 1fr); }
 .bm-board--4 { grid-template-columns: repeat(4, 1fr); }
+/* Production: 6 stages fill the width on laptops instead of forcing a
+   sideways scroll; mid-size screens swipe fixed-width columns. */
+.bm-board--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: stretch; }
+@media (max-width: 1200px) {
+  .bm-board--6 { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 230px; overflow-x: auto; padding-bottom: var(--bm-space-2); }
+}
 @media (max-width: 768px) {
-  .bm-board { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 80%; overflow-x: auto; padding-bottom: var(--bm-space-2); }
+  .bm-board, .bm-board--6 { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 80%; overflow-x: auto; padding-bottom: var(--bm-space-2); }
+}
+
+/* Kanban column: card list scrolls inside the capped column on desktop; on
+   phones the cap is lifted so nothing looks cut off — the page scrolls. */
+.bm-kcol {
+  background: var(--bm-surface-2); border-radius: var(--bm-radius-lg);
+  padding: var(--bm-space-3); display: flex; flex-direction: column;
+  gap: var(--bm-space-3); min-height: 240px; max-height: calc(100dvh - 220px);
+}
+.bm-kcol__list { display: flex; flex-direction: column; gap: var(--bm-space-3); overflow-y: auto; flex: 1 1 0; min-height: 0; padding-right: 2px; }
+@media (max-width: 768px) {
+  .bm-kcol { max-height: none; min-height: 160px; }
+  .bm-kcol__list { overflow-y: visible; flex: initial; }
 }
 
 /* Show one block on desktop, another on mobile (calendar month vs agenda) */
@@ -114,6 +133,52 @@ a {
 
 /* KPI stat cards: auto-fit on desktop, compact 2-up on phones */
 .bm-stats { display: grid; gap: var(--bm-space-4); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+/* Form rows in modals: side-by-side on desktop, stacked on phones so the
+   fields never get squeezed into unreadable slivers. */
+.bm-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--bm-space-4); }
+.bm-form-row--3 { grid-template-columns: 1fr 1fr 1fr; }
+.bm-form-row--hook { grid-template-columns: 2fr 1fr; gap: var(--bm-space-3); }
+/* Production stage row in the content modal: label / assignee / status */
+.bm-stage-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: var(--bm-space-2); align-items: center; }
+@media (max-width: 560px) {
+  .bm-form-row, .bm-form-row--3, .bm-form-row--hook { grid-template-columns: 1fr; gap: var(--bm-space-3); }
+  .bm-stage-row { grid-template-columns: 1fr 1fr; row-gap: var(--bm-space-1); padding-bottom: var(--bm-space-2); border-bottom: 1px dashed var(--bm-border); }
+  .bm-stage-row > :first-child { grid-column: 1 / -1; }
+  .bm-stage-row:last-child { border-bottom: none; }
+}
+
+/* AI ideas filter row: select / context / button — stacks on phones */
+.bm-ai-row { display: grid; grid-template-columns: 220px 1fr auto; gap: var(--bm-space-3); align-items: end; }
+@media (max-width: 640px) { .bm-ai-row { grid-template-columns: 1fr; align-items: stretch; } }
+
+/* Phones: modals become bottom sheets (full width, capped height, scrollable
+   body) instead of a floating box that clips long forms. */
+@media (max-width: 560px) {
+  .bm-modal-overlay { padding: 0; align-items: flex-end; }
+  .bm-modal { max-width: none; max-height: 94dvh; border-radius: var(--bm-radius-xl) var(--bm-radius-xl) 0 0; }
+  .bm-modal__body { padding: var(--bm-space-4); }
+  .bm-modal__header { padding: var(--bm-space-4); }
+  .bm-modal__footer { padding: var(--bm-space-3) var(--bm-space-4); padding-bottom: calc(var(--bm-space-3) + env(safe-area-inset-bottom)); }
+}
+
+/* Phones: data tables keep compact one-line rows and scroll sideways inside
+   .bm-table-wrap instead of wrapping into tall broken cells. */
+@media (max-width: 768px) {
+  .bm-table th, .bm-table td { white-space: nowrap; }
+}
+
+/* Dashboard sections: on phones the card header becomes a tap target that
+   folds/unfolds the body; on desktop the chevron is hidden and the body is
+   always visible, so the open/closed state has no effect there. */
+.bm-collapse__chev { display: none; color: var(--bm-text-subtle); transition: transform var(--bm-duration-base) var(--bm-ease); line-height: 0; }
+@media (max-width: 768px) {
+  .bm-collapse__head { cursor: pointer; user-select: none; }
+  .bm-collapse__chev { display: inline-flex; }
+  .bm-collapse--open .bm-collapse__chev { transform: rotate(90deg); }
+  .bm-collapse--closed .bm-collapse__body { display: none; }
+  .bm-collapse--closed .bm-collapse__head { border-bottom: none; }
+}
 
 /* Smaller phones: tighten headings + stat cards */
 @media (max-width: 560px) {

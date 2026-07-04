@@ -84,25 +84,25 @@ export default function ProductionPage() {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "var(--bm-space-3)", overflowX: "auto", paddingBottom: "var(--bm-space-3)" }}>
+      <div className="bm-board bm-board--6">
         {PRODUCTION_STAGES.map((col) => {
           const items = colItems(col.key);
           return (
             <div
               key={col.key}
+              className="bm-kcol"
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => { if (dragId) { advanceStage(dragId, col.key); setDragId(null); } }}
-              style={{ flex: "0 0 230px", background: "var(--bm-surface-2)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", minHeight: 240, maxHeight: "calc(100dvh - 220px)" }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: col.dot }} />
-                  <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{col.label}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: col.dot, flexShrink: 0 }} />
+                  <span title={col.label} style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{col.label}</span>
                 </div>
                 <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{items.length}</span>
               </div>
 
-              <div className="bm-noscrollbar" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", overflowY: "auto", flex: "1 1 0", minHeight: 0, paddingRight: 2 }}>
+              <div className="bm-noscrollbar bm-kcol__list">
               {items.map((it) => {
                 const ct = contentTypeMeta(it.type);
                 const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));

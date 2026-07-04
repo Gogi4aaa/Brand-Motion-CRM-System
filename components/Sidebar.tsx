@@ -72,6 +72,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
       </nav>
 
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+        {currentUser.isAdmin && (
         <div
           style={{
             background: "var(--bm-surface-2)",
@@ -93,6 +94,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
             <div className="bm-progress__bar" style={{ width: "72%" }} />
           </div>
         </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", padding: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
           <span className="bm-avatar">{currentUser.initials}</span>
           <div style={{ minWidth: 0, flex: 1 }}>

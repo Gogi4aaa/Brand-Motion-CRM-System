@@ -49,6 +49,7 @@ import {
   type CyclePhase,
   type ClientConnection,
   type ChannelProvider,
+  type VideoMetric,
 } from "@/lib/data";
 import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, CycleForm, IdeaForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
@@ -136,6 +137,9 @@ interface Store {
   updateMemberRole: (memberId: string, role: AccessRole) => void;
   updateMemberClients: (memberId: string, clientIds: string[]) => void;
   visibleClients: Client[];
+  videoMetrics: VideoMetric[];
+  saveVideoMetrics: (contentItemId: string, m: { platform: string; url: string; views: number; likes: number; comments: number; shares: number; source?: "manual" | "auto" }) => void;
+  getPortalLink: (clientId: string) => Promise<string | null>;
   addComment: (entityType: "client" | "task", entityId: string, body: string) => void;
   notify: (recipient: string, body: string, opts?: { link?: string; entity_type?: string; entity_id?: string }) => void;
   markNotificationRead: (id: string) => void;
@@ -199,6 +203,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ideas, setIdeas] = useState<Idea[]>(seedIdeas);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
+  const [videoMetrics, setVideoMetrics] = useState<VideoMetric[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
   const [loading, setLoading] = useState(supabaseConfigured);
   const [modal, setModal] = useState<Modal>(null);
@@ -217,7 +222,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const sb = createClient();
-        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv] = await Promise.all([
+        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv, vm] = await Promise.all([
           sb.from("clients").select("*").order("created_at"),
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
@@ -235,6 +240,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("content_cycles").select("*").order("created_at", { ascending: false }),
           sb.from("ideas").select("*").order("created_at", { ascending: false }),
           sb.from("approvals").select("*").order("created_at", { ascending: false }),
+          sb.from("video_metrics").select("*"),
         ]);
         if (cancelled) return;
         if (c.data) setClients(c.data as Client[]);
@@ -253,6 +259,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cc.data) setClientConnections(cc.data as ClientConnection[]);
         if (idv.data) setIdeas((idv.data as (Omit<Idea, "client"> & { client_id: string | null })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (apv.data) setApprovals(apv.data as Approval[]);
+        if (vm.data) setVideoMetrics(vm.data as VideoMetric[]);
         const uid = auth.data.user?.id;
         if (uid) {
           const me = (tm.data as (TeamMember & { role?: string })[] | null)?.find((p) => p.id === uid);
@@ -729,6 +736,38 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return token;
   }, [approvals, contentItems, currentUser.initials, logActivity]);
 
+  // ---- Client portal & video results ----
+  // One metrics row per video (unique on content_item_id) — the public portal
+  // reads it through portal_get, the admin edits it in the content modal.
+  const saveVideoMetrics = useCallback((contentItemId: string, m: { platform: string; url: string; views: number; likes: number; comments: number; shares: number; source?: "manual" | "auto" }) => {
+    const row: VideoMetric = {
+      id: "vm-" + contentItemId, content_item_id: contentItemId,
+      platform: m.platform, url: m.url,
+      views: m.views || 0, likes: m.likes || 0, comments: m.comments || 0, shares: m.shares || 0,
+      source: m.source || "manual", updated_at: new Date().toISOString(),
+    };
+    setVideoMetrics((list) => (list.some((x) => x.content_item_id === contentItemId) ? list.map((x) => (x.content_item_id === contentItemId ? { ...x, ...row } : x)) : [...list, row]));
+    sb()?.from("video_metrics").upsert(row, { onConflict: "content_item_id" }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] saveVideoMetrics failed:", error); notifyError("Резултатите не се запазиха: " + error.message + " — провери миграция 0021."); }
+    });
+  }, [notifyError]);
+
+  // Portal magic link for a client: reuse the active token or mint one.
+  const getPortalLink = useCallback(async (clientId: string): Promise<string | null> => {
+    const client = sb();
+    if (!client) return null;
+    const { data } = await client.from("client_portals").select("token").eq("client_id", clientId).eq("active", true).limit(1);
+    if (data?.length) return data[0].token as string;
+    const token = "pt" + (typeof crypto !== "undefined" && "randomUUID" in crypto ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : Math.random().toString(36).slice(2) + Date.now());
+    const { error } = await client.from("client_portals").insert({ token, client_id: clientId });
+    if (error) {
+      console.error("[BrandMotion] getPortalLink failed:", error);
+      notifyError("Порталният линк не се създаде: " + error.message + " — провери миграция 0021.");
+      return null;
+    }
+    return token;
+  }, [notifyError]);
+
   // ---- Production pipeline ----
   const persistItem = (id: string, patch: Record<string, unknown>) =>
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => {
@@ -806,20 +845,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     persistItem(itemId, { stages });
   }, [contentItems, syncStageTask, notify]);
 
+  // Profile edits go through RLS: without the "profiles admin update" policy
+  // (migration 0020) an admin's update of ANOTHER member matches 0 rows and
+  // Supabase reports success — so we select the row back and treat 0 rows as
+  // a failed save instead of silently losing the change.
+  const updateProfile = useCallback((memberId: string, patch: Record<string, unknown>, what: string) => {
+    sb()?.from("profiles").update(patch).eq("id", memberId).select("id").then(({ data, error }) => {
+      if (error || !data?.length) {
+        console.error(`[BrandMotion] ${what} failed:`, error || "0 rows updated (RLS?)");
+        notifyError(`Промяната (${what}) не се запази${error ? ": " + error.message : " — приложи миграция 0020 (права за админ върху профили)."}`);
+      }
+    });
+  }, [notifyError]);
+
   const updateMemberRoles = useCallback((memberId: string, roles: string[]) => {
     setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, roles } : m)));
-    sb()?.from("profiles").update({ roles }).eq("id", memberId).then(({ error }) => error && console.error("[BrandMotion] updateMemberRoles failed:", error));
-  }, []);
+    updateProfile(memberId, { roles }, "роли в продукция");
+  }, [updateProfile]);
 
   const updateMemberRole = useCallback((memberId: string, role: AccessRole) => {
     setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, role } : m)));
-    sb()?.from("profiles").update({ role }).eq("id", memberId).then(({ error }) => error && console.error("[BrandMotion] updateMemberRole failed:", error));
-  }, []);
+    updateProfile(memberId, { role }, "ниво на достъп");
+  }, [updateProfile]);
 
   const updateMemberClients = useCallback((memberId: string, clientIds: string[]) => {
     setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, client_ids: clientIds } : m)));
-    sb()?.from("profiles").update({ client_ids: clientIds }).eq("id", memberId).then(({ error }) => error && console.error("[BrandMotion] updateMemberClients failed:", error));
-  }, []);
+    updateProfile(memberId, { client_ids: clientIds }, "достъп до клиенти");
+  }, [updateProfile]);
 
   // The clients THIS user is allowed to see — drives every client dropdown and
   // the calendar/production/ideas filtering.
@@ -1021,6 +1073,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
     advanceStage, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, visibleClients,
+    videoMetrics, saveVideoMetrics, getPortalLink,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,

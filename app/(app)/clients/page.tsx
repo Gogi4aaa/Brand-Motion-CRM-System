@@ -7,9 +7,22 @@ import { Icon } from "@/components/Icon";
 import { healthMeta, fmtK, fmtFull } from "@/lib/data";
 
 export default function ClientsPage() {
-  const { clients, openModal } = useStore();
+  const { clients, openModal, getPortalLink } = useStore();
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Магическият линк, който собственикът на бизнеса отваря без логин —
+  // вижда напредъка на видеата си и резултатите след публикуване.
+  const copyPortal = async (e: React.MouseEvent, clientId: string) => {
+    e.stopPropagation();
+    const token = await getPortalLink(clientId);
+    if (!token) return;
+    const url = `${window.location.origin}/portal/${token}`;
+    try { await navigator.clipboard.writeText(url); } catch { /* clipboard blocked — линкът пак е валиден */ }
+    setCopiedId(clientId);
+    setTimeout(() => setCopiedId((id) => (id === clientId ? null : id)), 2500);
+  };
   const totalMrr = clients.reduce((a, b) => a + b.mrr, 0);
   const term = q.trim().toLowerCase();
   const shown = term
@@ -60,6 +73,13 @@ export default function ClientsPage() {
                   <span className="bm-avatar bm-avatar--sm">{c.owner}</span>
                 </div>
               </div>
+              <button
+                className="bm-btn bm-btn--secondary bm-btn--sm"
+                onClick={(e) => copyPortal(e, c.id)}
+                title="Копира линк, който клиентът отваря без логин — прогрес и резултати на видеата му"
+              >
+                {copiedId === c.id ? "✓ Линкът е копиран" : "Клиентски портал — копирай линк"}
+              </button>
             </div>
           );
         })}

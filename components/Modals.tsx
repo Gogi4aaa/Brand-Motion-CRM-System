@@ -9,14 +9,9 @@ import { CommentThread } from "./CommentThread";
 import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 
-const overlay: React.CSSProperties = {
-  position: "fixed", inset: 0, zIndex: 40, background: "rgba(15,23,42,0.5)",
-  display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--bm-space-4)",
-};
-
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="bm-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bm-modal">
         <div className="bm-modal__header">
           <h3>{title}</h3>
@@ -76,7 +71,7 @@ function CycleModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-alert bm-alert--info">Това ще започне цикъл за месеца и ще уведоми стратега да започне идеи и сценарии.</div>
           <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Месец</label><input className="bm-input" type="month" {...register("month")} /><Err msg={errors.month?.message} /></div>
             <div className="bm-field"><label className="bm-label">Брой видеа</label><input className="bm-input" type="number" {...register("target_count", { valueAsNumber: true })} /><Err msg={errors.target_count?.message} /></div>
           </div>
@@ -107,11 +102,11 @@ function ClientModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Име на фирма</label><input className="bm-input" {...register("name")} placeholder="напр. Фирма ООД" /><Err msg={errors.name?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Индустрия</label><input className="bm-input" {...register("industry")} placeholder="напр. Търговия" /><Err msg={errors.industry?.message} /></div>
             <div className="bm-field"><label className="bm-label">Месечно (USD)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="Active">Активен</option><option value="At risk">Риск</option><option value="Onboarding">Включване</option></select></div>
             <div className="bm-field"><label className="bm-label">Състояние</label><select className="bm-select" {...register("health")}><option value="good">Стабилен</option><option value="watch">Наблюдение</option><option value="risk">Риск</option></select></div>
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
@@ -166,7 +161,7 @@ function TaskModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Заглавие на задача</label><input className="bm-input" {...register("title")} placeholder="напр. Изготви бюлетин за август" /><Err msg={errors.title?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field">
               <label className="bm-label">Клиент</label>
               <select className="bm-select" {...register("client")} disabled={allowedClients.length === 0}>{allowedClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -183,7 +178,7 @@ function TaskModal() {
               </select>
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Краен срок</label><input className="bm-input" {...register("due")} placeholder="напр. 15 юли" /></div>
             <div className="bm-field"><label className="bm-label">Оценка (часове)</label><input className="bm-input" type="number" step="0.5" {...register("estimate_hours", { valueAsNumber: true })} /><Err msg={errors.estimate_hours?.message} /></div>
           </div>
@@ -245,7 +240,7 @@ function LeadModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Сделка / фирма</label><input className="bm-input" {...register("name")} placeholder="напр. Халсион Хотели" /><Err msg={errors.name?.message} /></div>
           <div className="bm-field"><label className="bm-label">Контакт</label><input className="bm-input" {...register("contact")} placeholder="напр. Иван Петров" /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Стойност (USD)</label><input className="bm-input" type="number" {...register("value", { valueAsNumber: true })} /><Err msg={errors.value?.message} /></div>
             <div className="bm-field"><label className="bm-label">Етап</label><select className="bm-select" {...register("stage")}><option value="new">Нов</option><option value="contacted">Свързан</option><option value="proposal">Оферта</option><option value="won">Спечелен</option><option value="lost">Загубен</option></select></div>
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
@@ -286,11 +281,11 @@ function OnboardModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-alert bm-alert--info">Това ще създаде клиент, чеклист за включване и съдържателен план. Прегледай преди да потвърдиш.</div>
           <div className="bm-field"><label className="bm-label">Име на клиент</label><input className="bm-input" {...register("name")} /><Err msg={errors.name?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Индустрия</label><input className="bm-input" {...register("industry")} placeholder="напр. Търговия" /><Err msg={errors.industry?.message} /></div>
             <div className="bm-field"><label className="bm-label">Месечно (USD)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Видео монтажист</label><select className="bm-select" {...register("editor")}><option value="">— няма —</option>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
           </div>
@@ -330,15 +325,15 @@ function CampaignModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Име на кампания</label><input className="bm-input" {...register("name")} placeholder="напр. Лятна разпродажба" /><Err msg={errors.name?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
             <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="planning">Планиране</option><option value="active">Активна</option><option value="paused">На пауза</option><option value="completed">Завършена</option></select></div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Канал</label><input className="bm-input" {...register("channel")} placeholder="напр. Платени социални" /></div>
             <div className="bm-field"><label className="bm-label">Бюджет (USD)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Започва</label><input className="bm-input" {...register("starts")} placeholder="напр. 1 юли" /></div>
             <div className="bm-field"><label className="bm-label">Завършва</label><input className="bm-input" {...register("ends")} placeholder="напр. 31 авг." /></div>
           </div>
@@ -374,7 +369,7 @@ function AdModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Име на кампания</label><input className="bm-input" {...register("name")} placeholder="напр. Лято — Привличане" /><Err msg={errors.name?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Цел</label><select className="bm-select" {...register("objective")}>{AD_OBJECTIVES.map((o) => <option key={o} value={o}>{AD_OBJECTIVE_LABELS[o] || o}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Бюджет (USD)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
@@ -421,7 +416,7 @@ function IdeaModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. 3 грешки при избор на…" /><Err msg={errors.title?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}><option value="">— обща идея —</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Източник</label><select className="bm-select" {...register("source")}>{IDEA_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
           </div>
@@ -439,6 +434,86 @@ function IdeaModal() {
         </div>
       </form>
     </Shell>
+  );
+}
+
+// Резултати от публикувано видео (гледания, харесвания…) — админът ги въвежда
+// ръчно или ги дърпа автоматично (/api/metrics/fetch, където платформата
+// позволява). Клиентът ги вижда в публичния си портал (/portal/<token>).
+function MetricsEditor({ itemId }: { itemId: string }) {
+  const { videoMetrics, saveVideoMetrics } = useStore();
+  const existing = videoMetrics.find((m) => m.content_item_id === itemId);
+  const [f, setF] = useState({
+    platform: existing?.platform || "",
+    url: existing?.url || "",
+    views: existing?.views || 0,
+    likes: existing?.likes || 0,
+    comments: existing?.comments || 0,
+    shares: existing?.shares || 0,
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [msg, setMsg] = useState("");
+  const num = (v: string) => Math.max(0, parseInt(v || "0", 10) || 0);
+
+  const autoFetch = async () => {
+    if (!f.url.trim()) { setMsg("Първо постави линк към публикацията."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const r = await fetch("/api/metrics/fetch?url=" + encodeURIComponent(f.url.trim()));
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Грешка при дърпане.");
+      setF((p) => ({
+        ...p,
+        platform: j.platform || p.platform,
+        views: typeof j.views === "number" ? j.views : p.views,
+        likes: typeof j.likes === "number" ? j.likes : p.likes,
+        comments: typeof j.comments === "number" ? j.comments : p.comments,
+      }));
+      setMsg(j.note || "Данните са дръпнати — прегледай и запази.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Грешка при дърпане.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = () => {
+    saveVideoMetrics(itemId, f);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+      <div className="bm-label">Резултати от публикацията (вижда ги клиентът в портала си)</div>
+      <div className="bm-form-row">
+        <div className="bm-field">
+          <label className="bm-label">Платформа</label>
+          <select className="bm-select" value={f.platform} onChange={(e) => setF({ ...f, platform: e.target.value })}>
+            <option value="">—</option>
+            <option>Instagram</option><option>TikTok</option><option>YouTube</option><option>Facebook</option>
+          </select>
+        </div>
+        <div className="bm-field">
+          <label className="bm-label">Линк към публикацията</label>
+          <input className="bm-input" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://…" />
+        </div>
+      </div>
+      <div className="bm-form-row">
+        <div className="bm-field"><label className="bm-label">Гледания</label><input className="bm-input" type="number" min={0} value={f.views} onChange={(e) => setF({ ...f, views: num(e.target.value) })} /></div>
+        <div className="bm-field"><label className="bm-label">Харесвания</label><input className="bm-input" type="number" min={0} value={f.likes} onChange={(e) => setF({ ...f, likes: num(e.target.value) })} /></div>
+      </div>
+      <div className="bm-form-row">
+        <div className="bm-field"><label className="bm-label">Коментари</label><input className="bm-input" type="number" min={0} value={f.comments} onChange={(e) => setF({ ...f, comments: num(e.target.value) })} /></div>
+        <div className="bm-field"><label className="bm-label">Споделяния</label><input className="bm-input" type="number" min={0} value={f.shares} onChange={(e) => setF({ ...f, shares: num(e.target.value) })} /></div>
+      </div>
+      {msg && <div className="bm-alert bm-alert--info" style={{ fontSize: "var(--bm-text-xs)" }}>{msg}</div>}
+      <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
+        <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" disabled={busy} onClick={autoFetch}>{busy ? "Дърпам…" : "Дръпни автоматично"}</button>
+        <button type="button" className="bm-btn bm-btn--primary bm-btn--sm" onClick={save}>{saved ? "✓ Запазено" : "Запази резултатите"}</button>
+      </div>
+    </div>
   );
 }
 
@@ -521,7 +596,7 @@ function ContentModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           {aiError && <div className="bm-alert bm-alert--danger">{aiError}</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Дата</label><input className="bm-input" type="date" {...register("date")} /><Err msg={errors.date?.message} /></div>
             <div className="bm-field"><label className="bm-label">Тип</label><select className="bm-select" {...register("type")}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
           </div>
@@ -546,7 +621,7 @@ function ContentModal() {
                 ))}
               </div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "var(--bm-space-3)" }}>
+            <div className="bm-form-row bm-form-row--hook">
               <div className="bm-field"><label className="bm-label">Кука (първите 2-3 сек)</label><input className="bm-input" {...register("hook")} placeholder="Изречението, което спира скрола…" /></div>
               <div className="bm-field"><label className="bm-label">Тип кука</label><select className="bm-select" {...register("hook_type")}><option value="">—</option>{HOOK_TYPES.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}</select></div>
             </div>
@@ -596,7 +671,7 @@ function ContentModal() {
               {PRODUCTION_STAGES.map((st) => {
                 const s = stages.find((x) => x.key === st.key) || { assignee: "", status: "todo" as const };
                 return (
-                  <div key={st.key} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: "var(--bm-space-2)", alignItems: "center" }}>
+                  <div key={st.key} className="bm-stage-row">
                     <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--bm-text-sm)" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} />{st.label}</span>
                     {canAssignStages ? (
                       <select className="bm-select" style={{ minHeight: 32, fontSize: "var(--bm-text-xs)" }} value={s.assignee} onChange={(e) => setStageAssignee(editing.id, st.key, e.target.value)}>
@@ -623,6 +698,10 @@ function ContentModal() {
                 );
               })}
             </div>
+          )}
+
+          {editing && currentUser.isAdmin && (live?.published ?? editing.published) && (
+            <MetricsEditor itemId={editing.id} />
           )}
         </div>
         <div className="bm-modal__footer" style={{ justifyContent: editing && currentUser.isAdmin ? "space-between" : "flex-end" }}>
@@ -683,7 +762,7 @@ function ScriptImportModal() {
         {step === "upload" ? (
           <>
             <div className="bm-alert bm-alert--info">Всяко видео трябва да започва със заглавие (Heading) в документа. Текстът след заглавието става сценарий на това видео.</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+            <div className="bm-form-row">
               <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" value={clientId} onChange={(e) => setClientId(e.target.value)}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
               <div className="bm-field"><label className="bm-label">Тип съдържание</label><select className="bm-select" value={type} onChange={(e) => setType(e.target.value as ContentType)}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
             </div>
@@ -741,7 +820,7 @@ function InvoiceModal() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+          <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Сума (USD)</label><input className="bm-input" type="number" {...register("amount", { valueAsNumber: true })} placeholder="0" /><Err msg={errors.amount?.message} /></div>
             <div className="bm-field"><label className="bm-label">Падеж</label><input className="bm-input" {...register("due")} placeholder="15 юли" /></div>
           </div>

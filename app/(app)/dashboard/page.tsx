@@ -1,9 +1,35 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor } from "@/lib/data";
+
+type Period = "today" | "week" | "month";
+const PERIODS: { key: Period; label: string; word: string }[] = [
+  { key: "today", label: "Днес", word: "днес" },
+  { key: "week", label: "Тази седмица", word: "тази седмица" },
+  { key: "month", label: "Месец", word: "този месец" },
+];
+
+// Dashboard section that folds under its header on phones (chevron + tap);
+// on desktop the header is inert and the body is always visible (CSS-gated).
+function Collapse({ title, badge, defaultOpen = false, children }: { title: string; badge?: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={"bm-card bm-collapse" + (open ? " bm-collapse--open" : " bm-collapse--closed")}>
+      <div className="bm-card__header bm-collapse__head" onClick={() => setOpen((o) => !o)}>
+        <h3>{title}</h3>
+        <span style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
+          {badge}
+          <span className="bm-collapse__chev"><Icon name="chevronRight" size={16} /></span>
+        </span>
+      </div>
+      <div className="bm-collapse__body">{children}</div>
+    </div>
+  );
+}
 
 function ago(iso: string) {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -27,16 +53,33 @@ export default function DashboardPage() {
   const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead } = useStore();
   const byId = clientsById(clients);
   const firstName = currentUser.name.split(" ")[0] || "колега";
-  const showMoney = currentUser.level !== "worker";
+  // Money (invoices, суми) is strictly the admin's; managers get the ops view
+  // (екип, продукция), workers get only their own work.
+  const showMoney = currentUser.isAdmin;
+  const showTeamOps = currentUser.level !== "worker";
+
+  // Period tabs: filter everything time-stamped (invoices, activity, alerts)
+  // to today / last 7 days / last 30 days. Rows without created_at (mock or
+  // legacy data) always stay visible.
+  const [period, setPeriod] = useState<Period>("month");
+  const periodWord = PERIODS.find((p) => p.key === period)?.word || "";
+  const since = (() => {
+    const d = new Date();
+    if (period === "today") d.setHours(0, 0, 0, 0);
+    else d.setDate(d.getDate() - (period === "week" ? 7 : 30));
+    return d.getTime();
+  })();
+  const inPeriod = (iso?: string) => !iso || new Date(iso).getTime() >= since;
   const myOpen = tasks.filter((t) => t.assignee === currentUser.initials && t.status !== "done").length;
   const myDone = tasks.filter((t) => t.assignee === currentUser.initials && t.status === "done").length;
   const myVideos = contentItems.filter((c) => (c.stages || []).some((s) => s.key === (c.current_stage || "strategy") && s.assignee === currentUser.initials)).length;
-  const feed = activity.map((a) => ({ who: a.actor_initials, name: a.actor_name.split(" ")[0] || a.actor_name, text: a.action, when: ago(a.created_at) }));
+  const feed = activity.filter((a) => inPeriod(a.created_at)).map((a) => ({ who: a.actor_initials, name: a.actor_name.split(" ")[0] || a.actor_name, text: a.action, when: ago(a.created_at) }));
+  const shownNotifications = notifications.filter((n) => inPeriod(n.created_at));
 
   const outstanding = invoices.filter((i) => i.status === "pending" || i.status === "overdue");
   const overdue = invoices.filter((i) => i.status === "overdue");
-  const paid = invoices.filter((i) => i.status === "paid");
-  const recent = invoices.slice(0, 5);
+  const paid = invoices.filter((i) => i.status === "paid" && inPeriod(i.created_at));
+  const recent = invoices.filter((i) => inPeriod(i.created_at)).slice(0, 5);
   const myTasks = tasks.filter((t) => t.assignee === currentUser.initials);
   const openTasks = tasks.filter((t) => t.status !== "done");
   const sum = (a: typeof invoices) => a.reduce((x, b) => x + b.amount, 0);
@@ -51,13 +94,13 @@ export default function DashboardPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <div>
           <h1>Добро утро, {firstName}</h1>
-          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{showMoney ? "Ето какво се случва в агенцията днес." : "Ето твоите задачи за деня."}</p>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{showTeamOps ? "Ето какво се случва в агенцията днес." : "Ето твоите задачи за деня."}</p>
         </div>
-        {showMoney && (
+        {showTeamOps && (
           <div className="bm-tabs" style={{ border: "none" }}>
-            <button className="bm-tab" aria-selected>Днес</button>
-            <button className="bm-tab">Тази седмица</button>
-            <button className="bm-tab">Месец</button>
+            {PERIODS.map((p) => (
+              <button key={p.key} className="bm-tab" aria-selected={period === p.key} onClick={() => setPeriod(p.key)}>{p.label}</button>
+            ))}
           </div>
         )}
       </div>
@@ -68,7 +111,14 @@ export default function DashboardPage() {
             <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-stat__delta--up" delta="▲ 12% спрямо м.м." />
             <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls="bm-stat__delta--down" delta="▼ 4% по-бавно събиране" />
             <Kpi label="Отворени задачи" value={openTasks.length} deltaCls="bm-text-subtle" delta="5 с краен срок тази седмица" />
-            <Kpi label="Платени този месец" value={fmtK(sum(paid))} deltaCls="bm-stat__delta--up" delta="▲ 23%" />
+            <Kpi label={"Платени " + periodWord} value={fmtK(sum(paid))} deltaCls="bm-stat__delta--up" delta={`${paid.length} фактури`} />
+          </>
+        ) : showTeamOps ? (
+          <>
+            <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-text-subtle" delta="в работа" />
+            <Kpi label="Отворени задачи" value={openTasks.length} deltaCls="bm-text-subtle" delta="по целия екип" />
+            <Kpi label="Видеа в продукция" value={contentItems.filter((c) => !c.published).length} deltaCls="bm-text-subtle" delta="по етапите" />
+            <Kpi label="Членове на екипа" value={team.length} deltaCls="bm-text-subtle" delta="активни" />
           </>
         ) : (
           <>
@@ -80,13 +130,12 @@ export default function DashboardPage() {
         )}
       </section>
 
-      <section className={showMoney ? "bm-split" : undefined} style={showMoney ? undefined : { display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
+      <section className={showTeamOps ? "bm-split" : undefined} style={showTeamOps ? undefined : { display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
-          <div className="bm-card">
-            <div className="bm-card__header"><h3>Известия</h3>{notifications.filter((n) => !n.read).length > 0 && <span className="bm-badge bm-badge--brand">{notifications.filter((n) => !n.read).length} нови</span>}</div>
+          <Collapse title="Известия" defaultOpen badge={shownNotifications.filter((n) => !n.read).length > 0 && <span className="bm-badge bm-badge--brand">{shownNotifications.filter((n) => !n.read).length} нови</span>}>
             <div className="bm-card__body" style={{ paddingTop: 0 }}>
-              {notifications.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма известия.</p>}
-              {notifications.slice(0, 4).map((n) => (
+              {shownNotifications.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма известия.</p>}
+              {shownNotifications.slice(0, 4).map((n) => (
                 <div key={n.id} onClick={() => markNotificationRead(n.id)} style={{ display: "flex", gap: "var(--bm-space-3)", padding: "var(--bm-space-3) 0", borderBottom: "1px solid var(--bm-border)", cursor: "pointer" }}>
                   <span className="bm-avatar bm-avatar--sm">{n.actor_initials}</span>
                   <div style={{ minWidth: 0 }}>
@@ -96,14 +145,10 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </Collapse>
 
           {showMoney && (
-          <div className="bm-card">
-            <div className="bm-card__header">
-              <h3>Последни фактури</h3>
-              <Link href="/invoices" className="bm-btn bm-btn--ghost bm-btn--sm">Виж всички</Link>
-            </div>
+          <Collapse title="Последни фактури" badge={<Link href="/invoices" className="bm-btn bm-btn--ghost bm-btn--sm" onClick={(e) => e.stopPropagation()}>Виж всички</Link>}>
             <div className="bm-table-wrap" style={{ border: "none", borderRadius: 0 }}>
               <table className="bm-table">
                 <thead><tr><th>Фактура</th><th>Клиент</th><th>Статус</th><th className="bm-table__num">Сума</th><th>Падеж</th></tr></thead>
@@ -123,11 +168,10 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </Collapse>
           )}
 
-          <div className="bm-card">
-            <div className="bm-card__header"><h3>Моите задачи</h3><span className="bm-badge bm-badge--brand">{myTasks.filter((t) => t.status !== "done").length} активни</span></div>
+          <Collapse title="Моите задачи" defaultOpen badge={<span className="bm-badge bm-badge--brand">{myTasks.filter((t) => t.status !== "done").length} активни</span>}>
             <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
               {myTasks.map((t) => {
                 const pm = prioMeta(t.priority);
@@ -146,18 +190,19 @@ export default function DashboardPage() {
                 );
               })}
             </div>
-          </div>
+          </Collapse>
         </div>
 
-        {showMoney && (
+        {showTeamOps && (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
+          {showMoney && (
           <div className="bm-alert bm-alert--danger" style={{ alignItems: "center" }}>
             <Icon name="warn" />
             <div><b>{overdue.length} просрочени фактури</b> — {fmtFull(sum(overdue))} се нуждаят от напомняне.</div>
           </div>
+          )}
 
-          <div className="bm-card">
-            <div className="bm-card__header"><h3>Активност на екипа</h3></div>
+          <Collapse title="Активност на екипа">
             <div className="bm-card__body" style={{ paddingTop: 0 }}>
               {feed.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Все още няма активност.</p>}
               {feed.map((a, i) => (
@@ -167,10 +212,9 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </Collapse>
 
-          <div className="bm-card">
-            <div className="bm-card__header"><h3>Натовареност на екипа</h3><div className="bm-avatar-group">{team.slice(0,4).map((m) => <span key={m.id} className="bm-avatar bm-avatar--sm">{m.initials}</span>)}</div></div>
+          <Collapse title="Натовареност на екипа" badge={<div className="bm-avatar-group">{team.slice(0,4).map((m) => <span key={m.id} className="bm-avatar bm-avatar--sm">{m.initials}</span>)}</div>}>
             <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
               {workload.map((w) => (
                 <div key={w.name}>
@@ -179,7 +223,7 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </Collapse>
         </div>
         )}
       </section>
