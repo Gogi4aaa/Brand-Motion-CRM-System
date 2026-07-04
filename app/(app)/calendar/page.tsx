@@ -21,13 +21,12 @@ export default function CalendarPage() {
 }
 
 function CalendarInner() {
-  const { clients, contentItems, openModal, currentUser, scheduleContent } = useStore();
+  const { contentItems, openModal, scheduleContent, visibleClients } = useStore();
   const search = useSearchParams();
   const [dragId, setDragId] = useState<string | null>(null);
-  const visibleClients = currentUser.level === "worker"
-    ? clients.filter((c) => contentItems.some((ci) => ci.client === c.id && (ci.stages || []).some((s) => s.assignee === currentUser.initials)))
-    : clients;
-  const initialClient = search.get("client") || visibleClients[0]?.id || "";
+  // Deep link honours access: a ?client= the user isn't allowed to see is ignored.
+  const requested = search.get("client");
+  const initialClient = requested && visibleClients.some((c) => c.id === requested) ? requested : visibleClients[0]?.id || "";
   const [clientId, setClientId] = useState(initialClient);
   const [pubFilter, setPubFilter] = useState<"all" | "published" | "unpublished">("all");
   const today = new Date();

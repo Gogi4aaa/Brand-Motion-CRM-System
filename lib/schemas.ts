@@ -32,8 +32,21 @@ export const taskSchema = z.object({
   client: z.string().min(1, "Pick a client"),
   priority: z.enum(["high", "medium", "low"]),
   due: z.string(),
+  estimate_hours: z.number({ message: "Въведи число" }).min(0, "0 или повече"),
+  pay_amount: z.number({ message: "Въведи число" }).min(0, "0 или повече"),
+  assignee: z.string(),
+  team_visible: z.boolean(),
 });
 export type TaskForm = z.infer<typeof taskSchema>;
+
+export const ideaSchema = z.object({
+  client: z.string(), // '' = general idea
+  title: z.string().trim().min(1, "Заглавието е задължително"),
+  description: z.string().trim(),
+  hook: z.string().trim(),
+  source: z.enum(["team", "client_brief", "trend", "competitor", "ai"]),
+});
+export type IdeaForm = z.infer<typeof ideaSchema>;
 
 export const leadSchema = z.object({
   name: z.string().trim().min(1, "Deal name is required"),
@@ -79,7 +92,12 @@ export const contentItemSchema = z.object({
   type: z.enum(["promo", "info", "reel", "project", "post"]),
   title: z.string().trim().min(1, "Заглавието е задължително"),
   notes: z.string().trim(),
+  hook: z.string().trim(),
+  hook_type: z.string(),
   script: z.string().trim(),
+  cta: z.string().trim(),
+  caption: z.string().trim(),
+  hashtags: z.string().trim(),
   notion_url: z.string().trim(),
   published: z.boolean(),
 });

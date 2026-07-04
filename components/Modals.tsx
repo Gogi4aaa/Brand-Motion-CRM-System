@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Icon } from "./Icon";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { fmtDuration, AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, type ContentType } from "@/lib/data";
-import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm } from "@/lib/schemas";
+import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
+import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 
 const overlay: React.CSSProperties = {
   position: "fixed", inset: 0, zIndex: 40, background: "rgba(15,23,42,0.5)",
@@ -58,6 +58,7 @@ export function Modals() {
   if (modal.kind === "content") return <ContentModal />;
   if (modal.kind === "importScripts") return <ScriptImportModal />;
   if (modal.kind === "cycle") return <CycleModal />;
+  if (modal.kind === "idea") return <IdeaModal />;
   return <InvoiceModal />;
 }
 
@@ -137,46 +138,27 @@ function ClientModal() {
   );
 }
 
-function TaskTimer({ taskId }: { taskId: string }) {
-  const { tasks, logTime } = useStore();
-  const base = tasks.find((t) => t.id === taskId)?.time_logged || 0;
-  const [elapsed, setElapsed] = useState(0);
-  const [running, setRunning] = useState(false);
-  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (running) {
-      ref.current = setInterval(() => setElapsed((e) => e + 1), 1000);
-      return () => { if (ref.current) clearInterval(ref.current); };
-    }
-  }, [running]);
-
-  const stop = () => { setRunning(false); if (elapsed > 0) logTime(taskId, elapsed); setElapsed(0); };
-
-  return (
-    <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)" }}>
-      <div>
-        <div className="bm-label">Изработено време</div>
-        <div style={{ fontFamily: "var(--bm-font-mono)", fontWeight: 700, fontSize: "var(--bm-text-lg)" }}>{fmtDuration(base + elapsed)}</div>
-      </div>
-      {running ? (
-        <button type="button" className="bm-btn bm-btn--danger" onClick={stop}>Спри таймера</button>
-      ) : (
-        <button type="button" className="bm-btn bm-btn--secondary" onClick={() => setRunning(true)}>Старт таймер</button>
-      )}
-    </div>
-  );
-}
-
 function TaskModal() {
-  const { modal, closeModal, addTask, updateTask, deleteTask, openModal, currentUser, clients } = useStore();
+  const { modal, closeModal, addTask, updateTask, deleteTask, openModal, currentUser, team, visibleClients } = useStore();
   const editing = modal?.kind === "task" && modal.mode === "edit" ? modal.task : null;
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<TaskForm>({
+  const canAssign = currentUser.isAdmin || currentUser.level === "manager";
+  const assigneeOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<TaskForm>({
     resolver: zodResolver(taskSchema),
     defaultValues: editing
-      ? { title: editing.title, client: editing.client, priority: editing.priority, due: editing.due }
-      : { title: "", client: clients[0]?.id ?? "", priority: "medium", due: "Soon" },
+      ? { title: editing.title, client: editing.client, priority: editing.priority, due: editing.due, estimate_hours: editing.estimate_hours ?? 0, pay_amount: editing.pay_amount ?? 0, assignee: editing.assignee, team_visible: (editing.visibility ?? "team") === "team" }
+      : { title: "", client: visibleClients[0]?.id ?? "", priority: "medium", due: "Soon", estimate_hours: 0, pay_amount: 0, assignee: currentUser.initials, team_visible: !currentUser.isAdmin },
   });
+  // The client dropdown only offers what the CHOSEN assignee may see — a worker
+  // must never receive a task for a client outside their access (Екип → достъп).
+  const assignee = watch("assignee");
+  const assigneeMember = team.find((m) => m.initials === assignee);
+  const allowedClients = assigneeMember ? visibleClientsFor(assigneeMember.role, assigneeMember.client_ids, visibleClients) : visibleClients;
+  const clientValue = watch("client");
+  useEffect(() => {
+    if (allowedClients.length && !allowedClients.some((c) => c.id === clientValue)) setValue("client", allowedClients[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignee]);
   const onSubmit = (f: TaskForm) => (editing ? updateTask(editing.id, f) : addTask(f));
 
   return (
@@ -185,11 +167,39 @@ function TaskModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Заглавие на задача</label><input className="bm-input" {...register("title")} placeholder="напр. Изготви бюлетин за август" /><Err msg={errors.title?.message} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
-            <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
+            <div className="bm-field">
+              <label className="bm-label">Клиент</label>
+              <select className="bm-select" {...register("client")} disabled={allowedClients.length === 0}>{allowedClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              {allowedClients.length === 0 && <span className="bm-error">Този изпълнител няма достъп до клиенти — задай му от Екип → достъп до клиенти.</span>}
+              <Err msg={errors.client?.message} />
+            </div>
             <div className="bm-field"><label className="bm-label">Приоритет</label><select className="bm-select" {...register("priority")}><option value="high">Висок</option><option value="medium">Среден</option><option value="low">Нисък</option></select></div>
           </div>
-          <div className="bm-field"><label className="bm-label">Краен срок</label><input className="bm-input" {...register("due")} placeholder="напр. 15 юли" /></div>
-          {editing && <TaskTimer taskId={editing.id} />}
+          {canAssign && (
+            <div className="bm-field">
+              <label className="bm-label">Изпълнител</label>
+              <select className="bm-select" {...register("assignee")}>
+                {assigneeOpts.map((k) => <option key={k} value={k}>{k === currentUser.initials ? `${k} (аз)` : `${k} — ${team.find((m) => m.initials === k)?.name || ""}`}</option>)}
+              </select>
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+            <div className="bm-field"><label className="bm-label">Краен срок</label><input className="bm-input" {...register("due")} placeholder="напр. 15 юли" /></div>
+            <div className="bm-field"><label className="bm-label">Оценка (часове)</label><input className="bm-input" type="number" step="0.5" {...register("estimate_hours", { valueAsNumber: true })} /><Err msg={errors.estimate_hours?.message} /></div>
+          </div>
+          {currentUser.isAdmin && (
+            <>
+              <div className="bm-field">
+                <label className="bm-label">Възнаграждение за изпълнителя (USD)</label>
+                <input className="bm-input" type="number" step="0.01" {...register("pay_amount", { valueAsNumber: true })} placeholder="0" />
+                <Err msg={errors.pay_amount?.message} />
+                {editing?.paid && <span className="bm-badge bm-badge--success" style={{ alignSelf: "flex-start", marginTop: 4 }}>Платена</span>}
+              </div>
+              <label className="bm-checkbox" title="Изключено = виждате я само ти и изпълнителят">
+                <input type="checkbox" {...register("team_visible")} /> Видима за целия екип
+              </label>
+            </>
+          )}
           {editing && (
             <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)" }}>
               <div className="bm-label" style={{ marginBottom: "var(--bm-space-2)" }}>Коментари</div>
@@ -209,7 +219,7 @@ function TaskModal() {
           )}
           <div style={{ display: "flex", gap: "var(--bm-space-3)" }}>
             <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
-            <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>{editing ? "Запази" : "Добави задача"}</button>
+            <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting || allowedClients.length === 0}>{editing ? "Запази" : "Добави задача"}</button>
           </div>
         </div>
       </form>
@@ -395,34 +405,190 @@ function AdModal() {
   );
 }
 
+function IdeaModal() {
+  const { modal, closeModal, addIdea, updateIdea, deleteIdea, openModal, currentUser, visibleClients: clients } = useStore();
+  const editing = modal?.kind === "idea" && modal.mode === "edit" ? modal.idea : null;
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<IdeaForm>({
+    resolver: zodResolver(ideaSchema),
+    defaultValues: editing
+      ? { client: editing.client ?? "", title: editing.title, description: editing.description, hook: editing.hook, source: editing.source }
+      : { client: "", title: "", description: "", hook: "", source: "team" },
+  });
+  const onSubmit = (f: IdeaForm) => (editing ? updateIdea(editing.id, f) : addIdea(f));
+
+  return (
+    <Shell title={editing ? "Редакция на идея" : "Нова идея"} onClose={closeModal}>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+          <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. 3 грешки при избор на…" /><Err msg={errors.title?.message} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
+            <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}><option value="">— обща идея —</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+            <div className="bm-field"><label className="bm-label">Източник</label><select className="bm-select" {...register("source")}>{IDEA_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
+          </div>
+          <div className="bm-field"><label className="bm-label">Кука (по избор)</label><input className="bm-input" {...register("hook")} placeholder="Първото изречение, което спира скрола…" /></div>
+          <div className="bm-field"><label className="bm-label">Описание</label><textarea className="bm-textarea" {...register("description")} placeholder="За какво е видеото, референции…" /></div>
+        </div>
+        <div className="bm-modal__footer" style={{ justifyContent: editing && currentUser.isAdmin ? "space-between" : "flex-end" }}>
+          {editing && currentUser.isAdmin && (
+            <button type="button" className="bm-btn bm-btn--ghost" onClick={() => openModal({ kind: "confirm", title: "Изтриване на идея?", message: `Изтрий „${editing.title}“? Действието е необратимо.`, confirmLabel: "Изтрий", onConfirm: () => deleteIdea(editing.id) })}>Изтрий</button>
+          )}
+          <div style={{ display: "flex", gap: "var(--bm-space-3)" }}>
+            <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
+            <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>{editing ? "Запази" : "Добави идея"}</button>
+          </div>
+        </div>
+      </form>
+    </Shell>
+  );
+}
+
 function ContentModal() {
-  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, contentItems, setStageAssignee, setStageStatus } = useStore();
+  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, setStageAssignee, setStageStatus } = useStore();
   const editing = modal?.kind === "content" && modal.mode === "edit" ? modal.item : null;
   const live = editing ? contentItems.find((c) => c.id === editing.id) : null;
   const stages = live?.stages || [];
+  // Admins AND managers distribute the production work (кой какво прави).
+  const canAssignStages = currentUser.isAdmin || currentUser.level === "manager";
   const assigneeOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
   const createCtx = modal?.kind === "content" && modal.mode === "create" ? modal : null;
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
+  const clientId = editing ? (live?.client ?? "") : (createCtx?.clientId ?? "");
+  const client = clients.find((c) => c.id === clientId);
+  const { register, handleSubmit, getValues, setValue, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
-      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, script: editing.script ?? "", notion_url: editing.notion_url, published: editing.published ?? false }
-      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", script: "", notion_url: "", published: false },
+      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, published: editing.published ?? false }
+      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", published: false },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
+
+  // ---- AI helpers ----
+  interface ScriptVariant { hook: string; hook_type: string; body: string; payoff: string; cta: string }
+  const [aiBusy, setAiBusy] = useState<"" | "script" | "caption">("");
+  const [aiError, setAiError] = useState("");
+  const [variants, setVariants] = useState<ScriptVariant[]>([]);
+  const brandCtx = { clientName: client?.name, industry: client?.industry, brandVoice: client?.brand_voice, targetAudience: client?.target_audience };
+
+  const genScript = async () => {
+    const title = getValues("title").trim();
+    if (!title) { setAiError("Първо напиши заглавие/тема."); return; }
+    setAiBusy("script"); setAiError(""); setVariants([]);
+    try {
+      const res = await fetch("/api/ai/script", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, notes: getValues("notes"), type: getValues("type"), ...brandCtx }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Грешка при генериране.");
+      setVariants(data.variants as ScriptVariant[]);
+    } catch (e) { setAiError(e instanceof Error ? e.message : "Грешка при генериране."); }
+    finally { setAiBusy(""); }
+  };
+
+  const applyVariant = (v: ScriptVariant) => {
+    setValue("hook", v.hook);
+    setValue("hook_type", HOOK_TYPES.some((h) => h.id === v.hook_type) ? v.hook_type : "");
+    setValue("script", [v.body, v.payoff].filter(Boolean).join("\n\n"));
+    setValue("cta", v.cta);
+    setVariants([]);
+  };
+
+  const genCaption = async () => {
+    const title = getValues("title").trim();
+    if (!title) { setAiError("Първо напиши заглавие/тема."); return; }
+    setAiBusy("caption"); setAiError("");
+    try {
+      const res = await fetch("/api/ai/caption", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, script: getValues("script"), ...brandCtx }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Грешка при генериране.");
+      setValue("caption", data.caption as string);
+      setValue("hashtags", (data.hashtags as string[]).map((h) => "#" + h.replace(/^#/, "")).join(" "));
+    } catch (e) { setAiError(e instanceof Error ? e.message : "Грешка при генериране."); }
+    finally { setAiBusy(""); }
+  };
+
+  // ---- Client approval (magic link) ----
+  const approval = editing ? approvals.find((a) => a.content_item_id === editing.id) : null;
+  const [reviewUrl, setReviewUrl] = useState("");
+  const [copied, setCopied] = useState(false);
+  const makeLink = async () => {
+    if (!editing) return;
+    const token = await requestApproval(editing.id);
+    if (!token) { setAiError("Линкът не можа да бъде създаден."); return; }
+    const url = `${window.location.origin}/review/${token}`;
+    setReviewUrl(url);
+    try { await navigator.clipboard.writeText(url); setCopied(true); } catch { setCopied(false); }
+  };
 
   return (
     <Shell title={editing ? "Редакция на съдържание" : "Ново съдържание"} onClose={closeModal}>
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+          {aiError && <div className="bm-alert bm-alert--danger">{aiError}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-4)" }}>
             <div className="bm-field"><label className="bm-label">Дата</label><input className="bm-input" type="date" {...register("date")} /><Err msg={errors.date?.message} /></div>
             <div className="bm-field"><label className="bm-label">Тип</label><select className="bm-select" {...register("type")}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
           </div>
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. промо продукт" /><Err msg={errors.title?.message} /></div>
-          <div className="bm-field"><label className="bm-label">Бележки</label><textarea className="bm-textarea" {...register("notes")} placeholder="Бриф, кука, бележки за сценарий…" /></div>
-          <div className="bm-field"><label className="bm-label">Сценарий</label><textarea className="bm-textarea" style={{ minHeight: 160 }} {...register("script")} placeholder="Текстът на сценария (импортира се от .docx или се пише тук)…" /></div>
-          <div className="bm-field"><label className="bm-label">Notion линк (по избор)</label><input className="bm-input" {...register("notion_url")} placeholder="https://notion.so/…" /></div>
-          <label className="bm-checkbox"><input type="checkbox" {...register("published")} /> Публикувано</label>
+          <div className="bm-field"><label className="bm-label">Бележки</label><textarea className="bm-textarea" {...register("notes")} placeholder="Бриф, референции, бележки…" /></div>
+
+          <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="bm-label" style={{ fontWeight: 700 }}>Сценарий (Hook → Стойност → CTA)</div>
+              <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" disabled={aiBusy !== ""} onClick={genScript}>{aiBusy === "script" ? "Генерирам…" : "✨ Генерирай с AI"}</button>
+            </div>
+            {variants.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+                {variants.map((v, i) => (
+                  <div key={i} style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--bm-space-2)", alignItems: "flex-start" }}>
+                      <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>🪝 {v.hook}</div>
+                      <button type="button" className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => applyVariant(v)}>Използвай</button>
+                    </div>
+                    <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", whiteSpace: "pre-wrap", maxHeight: 72, overflow: "hidden" }}>{v.body}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "var(--bm-space-3)" }}>
+              <div className="bm-field"><label className="bm-label">Кука (първите 2-3 сек)</label><input className="bm-input" {...register("hook")} placeholder="Изречението, което спира скрола…" /></div>
+              <div className="bm-field"><label className="bm-label">Тип кука</label><select className="bm-select" {...register("hook_type")}><option value="">—</option>{HOOK_TYPES.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}</select></div>
+            </div>
+            <div className="bm-field"><label className="bm-label">Тяло на сценария</label><textarea className="bm-textarea" style={{ minHeight: 140 }} {...register("script")} placeholder="Стойностните точки на видеото (импортира се от .docx или се пише тук)…" /></div>
+            <div className="bm-field"><label className="bm-label">CTA (призив към действие)</label><input className="bm-input" {...register("cta")} placeholder="напр. Последвай ни за още / Пиши ни в direct…" /></div>
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="bm-label" style={{ fontWeight: 700 }}>Публикуване</div>
+              <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" disabled={aiBusy !== ""} onClick={genCaption}>{aiBusy === "caption" ? "Генерирам…" : "✨ AI caption + хаштагове"}</button>
+            </div>
+            <div className="bm-field"><label className="bm-label">Caption</label><textarea className="bm-textarea" {...register("caption")} placeholder="Описанието на публикацията — кука в първия ред…" /></div>
+            <div className="bm-field"><label className="bm-label">Хаштагове</label><input className="bm-input" {...register("hashtags")} placeholder="#бранд #ниша #широк" /></div>
+            <div className="bm-field"><label className="bm-label">Notion линк (по избор)</label><input className="bm-input" {...register("notion_url")} placeholder="https://notion.so/…" /></div>
+            <label className="bm-checkbox"><input type="checkbox" {...register("published")} /> Публикувано</label>
+          </div>
+
+          {editing && (
+            <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-2)" }}>
+                <div className="bm-label" style={{ fontWeight: 700 }}>Одобрение от клиента</div>
+                {approval && <span className={"bm-badge " + approvalStatusMeta(approval.status).cls}>{approvalStatusMeta(approval.status).label}</span>}
+              </div>
+              {approval?.status === "changes_requested" && approval.feedback && (
+                <div className="bm-alert bm-alert--warning">Обратна връзка: „{approval.feedback}“</div>
+              )}
+              {reviewUrl ? (
+                <div style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center" }}>
+                  <input className="bm-input" readOnly value={reviewUrl} onFocus={(e) => e.target.select()} />
+                  {copied && <span className="bm-badge bm-badge--success">Копиран</span>}
+                </div>
+              ) : (
+                <div>
+                  <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={makeLink}>
+                    {approval?.status === "pending" ? "Покажи линка за одобрение" : "Създай линк за одобрение"}
+                  </button>
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", marginLeft: 8 }}>Клиентът одобрява или иска промени — без логин.</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {editing && stages.length > 0 && (
             <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
@@ -432,7 +598,7 @@ function ContentModal() {
                 return (
                   <div key={st.key} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: "var(--bm-space-2)", alignItems: "center" }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--bm-text-sm)" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} />{st.label}</span>
-                    {currentUser.isAdmin ? (
+                    {canAssignStages ? (
                       <select className="bm-select" style={{ minHeight: 32, fontSize: "var(--bm-text-xs)" }} value={s.assignee} onChange={(e) => setStageAssignee(editing.id, st.key, e.target.value)}>
                         <option value="">—</option>
                         {assigneeOpts.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -443,7 +609,7 @@ function ContentModal() {
                         {team.find((m) => m.initials === s.assignee)?.name || ""}
                       </span>
                     )}
-                    {(currentUser.isAdmin || s.assignee === currentUser.initials) ? (
+                    {(canAssignStages || s.assignee === currentUser.initials) ? (
                       <select className="bm-select" style={{ minHeight: 32, fontSize: "var(--bm-text-xs)" }} value={s.status} onChange={(e) => setStageStatus(editing.id, st.key, e.target.value as "todo" | "doing" | "done" | "blocked")}>
                         <option value="todo">Чакащо</option>
                         <option value="doing">В процес</option>
@@ -476,7 +642,7 @@ function ContentModal() {
 interface ImportRow { title: string; script: string; include: boolean }
 
 function ScriptImportModal() {
-  const { closeModal, clients, importScripts, cycles } = useStore();
+  const { closeModal, visibleClients: clients, importScripts, cycles } = useStore();
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
   const [type, setType] = useState<ContentType>("reel");

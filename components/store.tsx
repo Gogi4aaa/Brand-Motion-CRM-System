@@ -23,6 +23,11 @@ import {
   cyclePhaseMeta,
   monthKey,
   monthLabel,
+  seedIdeas,
+  visibleClientsFor,
+  type Idea,
+  type IdeaStatus,
+  type Approval,
   type AccessRole,
   type StageStatus,
   type Client,
@@ -45,7 +50,7 @@ import {
   type ClientConnection,
   type ChannelProvider,
 } from "@/lib/data";
-import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, CycleForm } from "@/lib/schemas";
+import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, CycleForm, IdeaForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
 
 export interface CurrentUser { name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
@@ -70,6 +75,8 @@ export type Modal =
   | { kind: "content"; mode: "edit"; item: ContentItem }
   | { kind: "importScripts" }
   | { kind: "cycle" }
+  | { kind: "idea"; mode: "create" }
+  | { kind: "idea"; mode: "edit"; idea: Idea }
   | { kind: "confirm"; title: string; message: string; confirmLabel: string; onConfirm: () => void }
   | null;
 
@@ -90,6 +97,8 @@ interface Store {
   socialPosts: SocialPost[];
   contentItems: ContentItem[];
   cycles: ContentCycle[];
+  ideas: Idea[];
+  approvals: Approval[];
   clientConnections: ClientConnection[];
   currentUser: CurrentUser;
   loading: boolean;
@@ -108,6 +117,14 @@ interface Store {
   updateContentItem: (id: string, f: ContentItemForm) => void;
   deleteContentItem: (id: string) => void;
   importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string) => void;
+  addIdea: (f: IdeaForm) => void;
+  updateIdea: (id: string, f: IdeaForm) => void;
+  deleteIdea: (id: string) => void;
+  voteIdea: (id: string, delta: number) => void;
+  setIdeaStatus: (id: string, status: IdeaStatus) => void;
+  promoteIdea: (id: string) => void;
+  addAiIdeas: (clientId: string, list: { title: string; description: string; hook: string }[]) => void;
+  requestApproval: (contentItemId: string) => Promise<string | null>;
   startCycle: (clientId: string, month: string, targetCount: number) => void;
   advanceCycle: (cycleId: string, toPhase: CyclePhase) => void;
   scheduleContent: (id: string, date: string | null) => void;
@@ -117,6 +134,8 @@ interface Store {
   setStageStatus: (itemId: string, stageKey: string, status: StageStatus) => void;
   updateMemberRoles: (memberId: string, roles: string[]) => void;
   updateMemberRole: (memberId: string, role: AccessRole) => void;
+  updateMemberClients: (memberId: string, clientIds: string[]) => void;
+  visibleClients: Client[];
   addComment: (entityType: "client" | "task", entityId: string, body: string) => void;
   notify: (recipient: string, body: string, opts?: { link?: string; entity_type?: string; entity_id?: string }) => void;
   markNotificationRead: (id: string) => void;
@@ -130,7 +149,6 @@ interface Store {
   addCampaign: (f: CampaignForm) => void;
   updateCampaign: (id: string, f: CampaignForm) => void;
   deleteCampaign: (id: string) => void;
-  logTime: (taskId: string, seconds: number) => void;
   modal: Modal;
   openModal: (m: Modal) => void;
   closeModal: () => void;
@@ -149,6 +167,7 @@ interface Store {
   deleteTask: (id: string) => void;
   moveTask: (id: string, status: TaskStatus) => void;
   toggleDone: (id: string) => void;
+  markWorkerPaid: (initials: string) => void;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -177,10 +196,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>(seedSocialPosts);
   const [contentItems, setContentItems] = useState<ContentItem[]>(seedContentItems);
   const [cycles, setCycles] = useState<ContentCycle[]>([]);
+  const [ideas, setIdeas] = useState<Idea[]>(seedIdeas);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
   const [loading, setLoading] = useState(supabaseConfigured);
   const [modal, setModal] = useState<Modal>(null);
+  // Failed saves surface as toasts — console-only errors made the optimistic UI
+  // look flaky (e.g. "Платено" reverting on reload while the DB write had failed).
+  const [toasts, setToasts] = useState<{ id: string; msg: string }[]>([]);
+  const notifyError = useCallback((msg: string) => {
+    const id = "e-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+    setToasts((list) => [...list, { id, msg }]);
+    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 8000);
+  }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) return;
@@ -188,12 +217,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const sb = createClient();
-        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc] = await Promise.all([
+        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv] = await Promise.all([
           sb.from("clients").select("*").order("created_at"),
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
           sb.from("activity").select("*").order("created_at", { ascending: false }).limit(20),
-          sb.from("profiles").select("id, name, initials, role, roles").order("created_at"),
+          sb.from("profiles").select("id, name, initials, role, roles, client_ids").order("created_at"),
           sb.from("comments").select("*").order("created_at"),
           sb.from("leads").select("*").order("created_at"),
           sb.from("campaigns").select("*").order("created_at"),
@@ -204,6 +233,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("client_connections").select("*"),
           sb.auth.getUser(),
           sb.from("content_cycles").select("*").order("created_at", { ascending: false }),
+          sb.from("ideas").select("*").order("created_at", { ascending: false }),
+          sb.from("approvals").select("*").order("created_at", { ascending: false }),
         ]);
         if (cancelled) return;
         if (c.data) setClients(c.data as Client[]);
@@ -220,6 +251,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (ci.data) setContentItems((ci.data as (Omit<ContentItem, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (cyc.data) setCycles((cyc.data as (Omit<ContentCycle, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (cc.data) setClientConnections(cc.data as ClientConnection[]);
+        if (idv.data) setIdeas((idv.data as (Omit<Idea, "client"> & { client_id: string | null })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
+        if (apv.data) setApprovals(apv.data as Approval[]);
         const uid = auth.data.user?.id;
         if (uid) {
           const me = (tm.data as (TeamMember & { role?: string })[] | null)?.find((p) => p.id === uid);
@@ -266,6 +299,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .subscribe();
     return () => { cancelled = true; client.removeChannel(ch); };
   }, [currentUser.initials]);
+
+  // Live task sync: assignments, status moves and "Платено" made by one user
+  // show up in everyone else's open session without a reload (tasks is in the
+  // supabase_realtime publication — migration 0019).
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    const client = createClient();
+    const toTask = (r: TaskRow): Task => { const { client_id, ...rest } = r; return { ...rest, client: client_id }; };
+    const ch = client
+      .channel("tasks-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          const t = toTask(payload.new as TaskRow);
+          setTasks((list) => (list.some((x) => x.id === t.id) ? list : [...list, t]));
+        } else if (payload.eventType === "UPDATE") {
+          const t = toTask(payload.new as TaskRow);
+          setTasks((list) => list.map((x) => (x.id === t.id ? t : x)));
+        } else if (payload.eventType === "DELETE") {
+          const id = (payload.old as { id?: string })?.id;
+          if (id) setTasks((list) => list.filter((x) => x.id !== id));
+        }
+      })
+      .subscribe();
+    return () => { client.removeChannel(ch); };
+  }, []);
 
   const logActivity = useCallback((action: string) => {
     const item: ActivityItem = {
@@ -446,17 +504,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setModal(null);
   }, []);
 
-  const logTime = useCallback((taskId: string, seconds: number) => {
-    if (seconds <= 0) return;
-    let total = 0;
-    setTasks((list) => list.map((t) => {
-      if (t.id !== taskId) return t;
-      total = (t.time_logged || 0) + seconds;
-      return { ...t, time_logged: total };
-    }));
-    sb()?.from("tasks").update({ time_logged: total }).eq("id", taskId).then(({ error }) => error && console.error("[BrandMotion] logTime failed:", error));
-  }, []);
-
   // ---- Phase 5: integrations ----
   const toggleIntegration = useCallback((provider: Provider) => {
     let nowConnected = false;
@@ -524,17 +571,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     logActivity(`публикува в ${plats.join(", ")}`);
   }, [logActivity]);
 
+  // ---- Production → team task board bridge ----
+  // Every production handoff surfaces as a PRIVATE task (assignee + admin, and
+  // managers via canSeeTask): the open task linked to the video is closed and a
+  // fresh one is created for whoever owns the stage it just entered. Pass
+  // toStage=null to only close (final publish).
+  const syncStageTask = useCallback((itemId: string, title: string, clientId: string, toStage: string | null, assignee: string) => {
+    // Derive the ids from the current state, not inside the updater — React may
+    // defer updaters, so side effects there never reach the DB write below.
+    const closedIds = tasks.filter((t) => t.content_item_id === itemId && t.status !== "done").map((t) => t.id);
+    if (closedIds.length) {
+      setTasks((list) => list.map((t) => (closedIds.includes(t.id) ? { ...t, status: "done" as TaskStatus, progress: 100 } : t)));
+      sb()?.from("tasks").update({ status: "done", progress: 100 }).in("id", closedIds).then(({ error }) => {
+        if (error) { console.error("[BrandMotion] syncStageTask close failed:", error); notifyError("Затварянето на предишния етап не се запази: " + error.message); }
+      });
+    }
+    if (!toStage || !assignee) return;
+    const row = {
+      id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: `Видео „${title || "(без заглавие)"}“ — ${stageMeta(toStage).label}`,
+      client_id: clientId,
+      status: "todo" as TaskStatus,
+      priority: "medium" as const,
+      assignee,
+      due: "Според етапа",
+      progress: 0,
+      estimate_hours: 0,
+      pay_amount: 0,
+      visibility: "private" as const,
+      content_item_id: itemId,
+      stage_key: toStage,
+    };
+    const { client_id: rowClientId, ...rest } = row;
+    setTasks((list) => [...list, { ...rest, client: rowClientId }]);
+    sb()?.from("tasks").insert(row).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] syncStageTask insert failed:", error); notifyError("Задачата за следващия етап не се запази: " + error.message); }
+    });
+  }, [tasks, notifyError]);
+
   // ---- Content calendar ----
   const addContentItem = useCallback((clientId: string, f: ContentItemForm) => {
     const client = clients.find((c) => c.id === clientId);
     const stages = defaultStages(team, client?.editor || "", currentUser.initials);
     const date = f.date || null;
-    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, notion_url: f.notion_url, published: f.published, current_stage: "strategy", stages };
-    setContentItems((list) => [...list, { id: row.id, client: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, notion_url: f.notion_url, published: f.published, current_stage: "strategy", stages }]);
+    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, published: f.published, current_stage: "strategy", stages };
+    const { client_id: newClient, ...restRow } = row;
+    setContentItems((list) => [...list, { ...restRow, client: newClient }]);
     sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] addContentItem failed:", error));
+    syncStageTask(row.id, f.title, clientId, "strategy", stages.find((s) => s.key === "strategy")?.assignee || "");
     logActivity(`планира съдържание „${f.title}“`);
     setModal(null);
-  }, [clients, team, currentUser.initials, logActivity]);
+  }, [clients, team, currentUser.initials, syncStageTask, logActivity]);
 
   // Import many videos from a parsed .docx: each becomes a content item placed at
   // `startStage` with the prior stages pre-marked done (strategy + script were
@@ -555,85 +642,169 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
+    rows.forEach((r) => syncStageTask(r.id, r.title, clientId, r.current_stage, r.stages.find((s) => s.key === r.current_stage)?.assignee || ""));
     logActivity(`импортира ${videos.length} сценария за ${client?.name || clientId}`);
     // Scripts are in → flip this client's open cycle into production.
     if (cycleId) advanceCycle(cycleId, "production");
     setModal(null);
-  }, [clients, team, currentUser.initials, advanceCycle, logActivity]);
+  }, [clients, team, currentUser.initials, advanceCycle, syncStageTask, logActivity]);
+
+  // ---- Idea Bank ----
+  const addIdea = useCallback((f: IdeaForm) => {
+    const row = { id: "id-" + Date.now(), client_id: f.client || null, title: f.title, description: f.description, hook: f.hook, source: f.source, status: "backlog" as IdeaStatus, votes: 0, created_by: currentUser.initials };
+    setIdeas((list) => [{ id: row.id, client: row.client_id, title: f.title, description: f.description, hook: f.hook, source: f.source, status: "backlog", votes: 0, created_by: currentUser.initials }, ...list]);
+    sb()?.from("ideas").insert(row).then(({ error }) => error && console.error("[BrandMotion] addIdea failed:", error));
+    logActivity(`добави идея „${f.title}“`);
+    setModal(null);
+  }, [currentUser.initials, logActivity]);
+
+  const updateIdea = useCallback((id: string, f: IdeaForm) => {
+    const patch = { client_id: f.client || null, title: f.title, description: f.description, hook: f.hook, source: f.source };
+    setIdeas((list) => list.map((i) => (i.id === id ? { ...i, client: f.client || null, title: f.title, description: f.description, hook: f.hook, source: f.source } : i)));
+    sb()?.from("ideas").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateIdea failed:", error));
+    setModal(null);
+  }, []);
+
+  const deleteIdea = useCallback((id: string) => {
+    setIdeas((list) => list.filter((i) => i.id !== id));
+    sb()?.from("ideas").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteIdea failed:", error));
+    setModal(null);
+  }, []);
+
+  const voteIdea = useCallback((id: string, delta: number) => {
+    let votes = 0;
+    setIdeas((list) => list.map((i) => { if (i.id !== id) return i; votes = Math.max(0, (i.votes || 0) + delta); return { ...i, votes }; }));
+    sb()?.from("ideas").update({ votes }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] voteIdea failed:", error));
+  }, []);
+
+  const setIdeaStatus = useCallback((id: string, status: IdeaStatus) => {
+    setIdeas((list) => list.map((i) => (i.id === id ? { ...i, status } : i)));
+    sb()?.from("ideas").update({ status }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] setIdeaStatus failed:", error));
+  }, []);
+
+  // Promote an idea into production: create a content_item carrying the hook
+  // over, and mark the idea as promoted. The card lands at 'strategy'.
+  const promoteIdea = useCallback((id: string) => {
+    const idea = ideas.find((i) => i.id === id);
+    if (!idea) return;
+    const clientId = idea.client || clients[0]?.id;
+    if (!clientId) return;
+    const client = clients.find((c) => c.id === clientId);
+    const stages = defaultStages(team, client?.editor || "", currentUser.initials);
+    const row = { id: "ct-" + Date.now(), client_id: clientId, date: null as string | null, type: "reel" as ContentType, title: idea.title, notes: idea.description, script: "", hook: idea.hook, hook_type: "", cta: "", caption: "", hashtags: "", notion_url: "", published: false, current_stage: "strategy", stages };
+    const { client_id: rowClient, ...rest } = row;
+    setContentItems((list) => [...list, { ...rest, client: rowClient }]);
+    sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] promoteIdea insert failed:", error));
+    syncStageTask(row.id, idea.title, clientId, "strategy", stages.find((s) => s.key === "strategy")?.assignee || "");
+    setIdeaStatus(id, "promoted");
+    logActivity(`промотира идея „${idea.title}“ в продукция`);
+  }, [ideas, clients, team, currentUser.initials, setIdeaStatus, syncStageTask, logActivity]);
+
+  // Bulk-insert AI-generated ideas (source='ai', status='backlog').
+  const addAiIdeas = useCallback((clientId: string, list: { title: string; description: string; hook: string }[]) => {
+    if (!list.length) return;
+    const base = Date.now();
+    const rows = list.map((x, i) => ({ id: `id-${base}-${i}`, client_id: clientId || null, title: x.title, description: x.description, hook: x.hook, source: "ai" as const, status: "backlog" as IdeaStatus, votes: 0, created_by: currentUser.initials }));
+    setIdeas((prev) => [...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id })), ...prev]);
+    sb()?.from("ideas").insert(rows).then(({ error }) => error && console.error("[BrandMotion] addAiIdeas failed:", error));
+    logActivity(`генерира ${list.length} AI идеи`);
+  }, [currentUser.initials, logActivity]);
+
+  // ---- Client approval (magic link) ----
+  // Creates a pending approval whose id doubles as the unguessable token in
+  // the public /review/<token> URL. Reuses an existing pending link if any.
+  const requestApproval = useCallback(async (contentItemId: string): Promise<string | null> => {
+    const existing = approvals.find((a) => a.content_item_id === contentItemId && a.status === "pending");
+    if (existing) return existing.id;
+    const item = contentItems.find((c) => c.id === contentItemId);
+    const token = "rv" + (typeof crypto !== "undefined" && "randomUUID" in crypto ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : Math.random().toString(36).slice(2) + Date.now());
+    const row: Approval = { id: token, content_item_id: contentItemId, client_id: item?.client || "", owner: currentUser.initials, status: "pending", approver_email: "", feedback: "" };
+    setApprovals((list) => [row, ...list]);
+    const client = sb();
+    if (client) {
+      const { error } = await client.from("approvals").insert(row);
+      if (error) { console.error("[BrandMotion] requestApproval failed:", error); return null; }
+    }
+    logActivity(`изпрати „${item?.title || contentItemId}“ за одобрение от клиента`);
+    return token;
+  }, [approvals, contentItems, currentUser.initials, logActivity]);
 
   // ---- Production pipeline ----
   const persistItem = (id: string, patch: Record<string, unknown>) =>
-    sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] content update failed:", error));
+    sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] content update failed:", error); notifyError("Промяната по видеото не се запази: " + error.message); }
+    });
 
   const advanceStage = useCallback((itemId: string, toStage: string) => {
+    const item = contentItems.find((c) => c.id === itemId);
+    if (!item) return;
     const order = PRODUCTION_STAGES.map((s) => s.key);
     const ti = order.indexOf(toStage);
-    let nextStages: { key: string; assignee: string; status: StageStatus }[] = [];
-    let title = "";
-    setContentItems((list) => list.map((c) => {
-      if (c.id !== itemId) return c;
-      title = c.title;
-      const existing = c.stages || defaultStages(team, "", currentUser.initials);
-      nextStages = existing.map((s) => {
-        const idx = order.indexOf(s.key);
-        return { ...s, status: idx < ti ? "done" : idx === ti ? "doing" : "todo" };
-      });
-      return { ...c, current_stage: toStage, stages: nextStages };
-    }));
+    const existing = item.stages || defaultStages(team, "", currentUser.initials);
+    const nextStages = existing.map((s) => {
+      const idx = order.indexOf(s.key);
+      return { ...s, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
+    });
+    setContentItems((list) => list.map((c) => (c.id === itemId ? { ...c, current_stage: toStage, stages: nextStages } : c)));
     persistItem(itemId, { current_stage: toStage, stages: nextStages });
-    // Hand-off: tell whoever owns the stage it just moved into.
+    // Hand-off: tell whoever owns the stage it just moved into + surface it on
+    // the team task board (closes the previous stage's task).
     const owner = nextStages.find((s) => s.key === toStage)?.assignee;
-    if (owner) notify(owner, `Видео „${title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(toStage).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
-  }, [team, currentUser.initials, notify]);
+    syncStageTask(itemId, item.title, item.client, toStage, owner || "");
+    if (owner) notify(owner, `Видео „${item.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(toStage).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
+  }, [contentItems, team, currentUser.initials, syncStageTask, notify]);
 
   const setStageAssignee = useCallback((itemId: string, stageKey: string, assignee: string) => {
-    let next: unknown = null;
-    setContentItems((list) => list.map((c) => {
-      if (c.id !== itemId) return c;
-      const stages = (c.stages || []).map((s) => (s.key === stageKey ? { ...s, assignee } : s));
-      next = stages;
-      return { ...c, stages };
-    }));
-    if (next) persistItem(itemId, { stages: next });
-  }, []);
+    const item = contentItems.find((c) => c.id === itemId);
+    if (!item) return;
+    const stages = (item.stages || []).map((s) => (s.key === stageKey ? { ...s, assignee } : s));
+    setContentItems((list) => list.map((c) => (c.id === itemId ? { ...c, stages } : c)));
+    persistItem(itemId, { stages });
+    // Selecting who works the CURRENT stage re-targets the video's open task on
+    // the team board (or creates it if the stage had no owner until now).
+    if ((item.current_stage || "strategy") === stageKey) {
+      const openIds = tasks.filter((t) => t.content_item_id === itemId && t.status !== "done").map((t) => t.id);
+      if (openIds.length) {
+        setTasks((list) => list.map((t) => (openIds.includes(t.id) ? { ...t, assignee } : t)));
+        sb()?.from("tasks").update({ assignee }).in("id", openIds).then(({ error }) => {
+          if (error) { console.error("[BrandMotion] stage task reassign failed:", error); notifyError("Смяната на изпълнителя не се запази: " + error.message); }
+        });
+        if (assignee) notify(assignee, `Видео „${item.title || "(без заглавие)"}“ е при теб: ${stageMeta(stageKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
+      } else if (assignee) {
+        syncStageTask(itemId, item.title, item.client, stageKey, assignee);
+      }
+    }
+  }, [contentItems, tasks, syncStageTask, notify, notifyError]);
 
   const setStageStatus = useCallback((itemId: string, stageKey: string, status: StageStatus) => {
     const order = PRODUCTION_STAGES.map((s) => s.key);
-    let patch: Record<string, unknown> | null = null;
-    let handoff: { to: string; stageKey: string; title: string } | null = null;
-    setContentItems((list) => list.map((c) => {
-      if (c.id !== itemId) return c;
-      const cur = c.current_stage || order[0];
-      // Auto-advance: marking the CURRENT stage "done" moves the video forward.
-      if (status === "done" && stageKey === cur) {
-        const idx = order.indexOf(cur);
-        const nextKey = idx < order.length - 1 ? order[idx + 1] : cur;
-        const isLast = idx >= order.length - 1;
-        const ti = order.indexOf(nextKey);
-        const stages = (c.stages || []).map((s) => {
-          const i = order.indexOf(s.key);
-          if (isLast) return { ...s, status: i <= idx ? "done" as StageStatus : s.status };
-          return { ...s, status: i < ti ? "done" as StageStatus : i === ti ? "doing" as StageStatus : "todo" as StageStatus };
-        });
-        const published = isLast ? true : c.published;
-        patch = { current_stage: nextKey, stages, published };
-        if (!isLast) {
-          const to = stages.find((s) => s.key === nextKey)?.assignee || "";
-          if (to) handoff = { to, stageKey: nextKey, title: c.title };
-        }
-        return { ...c, current_stage: nextKey, stages, published };
-      }
-      // Otherwise just set this stage's status.
-      const stages = (c.stages || []).map((s) => (s.key === stageKey ? { ...s, status } : s));
-      patch = { stages };
-      return { ...c, stages };
-    }));
-    if (patch) persistItem(itemId, patch);
-    if (handoff) {
-      const h = handoff as { to: string; stageKey: string; title: string };
-      notify(h.to, `Видео „${h.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(h.stageKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
+    const c = contentItems.find((x) => x.id === itemId);
+    if (!c) return;
+    const cur = c.current_stage || order[0];
+    // Auto-advance: marking the CURRENT stage "done" moves the video forward.
+    if (status === "done" && stageKey === cur) {
+      const idx = order.indexOf(cur);
+      const nextKey = idx < order.length - 1 ? order[idx + 1] : cur;
+      const isLast = idx >= order.length - 1;
+      const ti = order.indexOf(nextKey);
+      const stages = (c.stages || []).map((s) => {
+        const i = order.indexOf(s.key);
+        if (isLast) return { ...s, status: i <= idx ? "done" as StageStatus : s.status };
+        return { ...s, status: i < ti ? "done" as StageStatus : i === ti ? "doing" as StageStatus : "todo" as StageStatus };
+      });
+      const published = isLast ? true : c.published;
+      setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, current_stage: nextKey, stages, published } : x)));
+      persistItem(itemId, { current_stage: nextKey, stages, published });
+      const to = isLast ? "" : stages.find((s) => s.key === nextKey)?.assignee || "";
+      syncStageTask(itemId, c.title, c.client, isLast ? null : nextKey, to);
+      if (!isLast && to) notify(to, `Видео „${c.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(nextKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
+      return;
     }
-  }, [notify]);
+    // Otherwise just set this stage's status.
+    const stages = (c.stages || []).map((s) => (s.key === stageKey ? { ...s, status } : s));
+    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, stages } : x)));
+    persistItem(itemId, { stages });
+  }, [contentItems, syncStageTask, notify]);
 
   const updateMemberRoles = useCallback((memberId: string, roles: string[]) => {
     setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, roles } : m)));
@@ -645,10 +816,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb()?.from("profiles").update({ role }).eq("id", memberId).then(({ error }) => error && console.error("[BrandMotion] updateMemberRole failed:", error));
   }, []);
 
+  const updateMemberClients = useCallback((memberId: string, clientIds: string[]) => {
+    setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, client_ids: clientIds } : m)));
+    sb()?.from("profiles").update({ client_ids: clientIds }).eq("id", memberId).then(({ error }) => error && console.error("[BrandMotion] updateMemberClients failed:", error));
+  }, []);
+
+  // The clients THIS user is allowed to see — drives every client dropdown and
+  // the calendar/production/ideas filtering.
+  const me = team.find((m) => m.initials === currentUser.initials);
+  const visibleClients = visibleClientsFor(currentUser.level, me?.client_ids, clients);
+
   const updateContentItem = useCallback((id: string, f: ContentItemForm) => {
     const date = f.date || null;
-    setContentItems((list) => list.map((c) => (c.id === id ? { ...c, date, type: f.type, title: f.title, notes: f.notes, script: f.script, notion_url: f.notion_url, published: f.published } : c)));
-    sb()?.from("content_items").update({ date, type: f.type, title: f.title, notes: f.notes, script: f.script, notion_url: f.notion_url, published: f.published }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
+    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, published: f.published };
+    setContentItems((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
     setModal(null);
   }, []);
 
@@ -745,21 +927,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [logActivity]);
 
   // ---- Tasks ----
+  // Admin-created tasks are private (admin + assignee) unless "видима за целия
+  // екип" is checked; everyone else's tasks stay team-visible as before.
   const addTask = useCallback((f: TaskForm) => {
-    const row = { id: "t-" + Date.now(), title: f.title, client_id: f.client, status: "todo" as TaskStatus, priority: f.priority, assignee: currentUser.initials, due: f.due || "Soon", progress: 0 };
-    setTasks((list) => [...list, { ...row, client: row.client_id }]);
-    sb()?.from("tasks").insert(row).then(({ error }) => error && console.error("[BrandMotion] addTask failed:", error));
+    const assignee = (currentUser.isAdmin || currentUser.level === "manager") && f.assignee ? f.assignee : currentUser.initials;
+    const visibility = currentUser.isAdmin && !f.team_visible ? ("private" as const) : ("team" as const);
+    const row = { id: "t-" + Date.now(), title: f.title, client_id: f.client, status: "todo" as TaskStatus, priority: f.priority, assignee, due: f.due || "Soon", progress: 0, estimate_hours: f.estimate_hours || 0, pay_amount: f.pay_amount || 0, visibility };
+    const { client_id: rowClient, ...rest } = row;
+    setTasks((list) => [...list, { ...rest, client: rowClient }]);
+    sb()?.from("tasks").insert(row).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] addTask failed:", error); notifyError("Задачата не се запази и няма да стигне до изпълнителя: " + error.message); }
+    });
+    if (assignee !== currentUser.initials) notify(assignee, `Нова задача за теб: „${f.title}“`, { entity_type: "task", entity_id: row.id });
     logActivity(`създаде задача „${f.title}“`);
     setModal(null);
-  }, [currentUser.initials, logActivity]);
+  }, [currentUser.initials, currentUser.isAdmin, currentUser.level, notify, notifyError, logActivity]);
 
   const updateTask = useCallback((id: string, f: TaskForm) => {
-    const patch = { title: f.title, client_id: f.client, priority: f.priority, due: f.due || "Soon" };
-    setTasks((list) => list.map((t) => (t.id === id ? { ...t, title: f.title, client: f.client, priority: f.priority, due: f.due || "Soon" } : t)));
-    sb()?.from("tasks").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateTask failed:", error));
+    const prev = tasks.find((t) => t.id === id);
+    const canAssign = currentUser.isAdmin || currentUser.level === "manager";
+    const assignee = canAssign && f.assignee ? f.assignee : prev?.assignee || currentUser.initials;
+    const visibility = currentUser.isAdmin ? (f.team_visible ? ("team" as const) : ("private" as const)) : prev?.visibility || "team";
+    const patch = { title: f.title, client_id: f.client, priority: f.priority, due: f.due || "Soon", estimate_hours: f.estimate_hours || 0, pay_amount: f.pay_amount || 0, assignee, visibility };
+    setTasks((list) => list.map((t) => (t.id === id ? { ...t, title: f.title, client: f.client, priority: f.priority, due: f.due || "Soon", estimate_hours: f.estimate_hours || 0, pay_amount: f.pay_amount || 0, assignee, visibility } : t)));
+    sb()?.from("tasks").update(patch).eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] updateTask failed:", error); notifyError("Промяната по задачата не се запази: " + error.message); }
+    });
+    if (prev && assignee !== prev.assignee && assignee !== currentUser.initials) notify(assignee, `Задача „${f.title}“ е прехвърлена на теб`, { entity_type: "task", entity_id: id });
     logActivity(`обнови задача „${f.title}“`);
     setModal(null);
-  }, [logActivity]);
+  }, [tasks, currentUser.initials, currentUser.isAdmin, currentUser.level, notify, notifyError, logActivity]);
 
   const deleteTask = useCallback((id: string) => {
     const title = tasks.find((t) => t.id === id)?.title || id;
@@ -769,34 +966,81 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setModal(null);
   }, [tasks, logActivity]);
 
+  // Completing a production task (done column / toggle) closes its stage too —
+  // setStageStatus then auto-advances the video and opens the next worker's task.
+  const completeStageFor = useCallback((t: Task | undefined) => {
+    if (t && t.status !== "done" && t.content_item_id && t.stage_key) setStageStatus(t.content_item_id, t.stage_key, "done");
+  }, [setStageStatus]);
+
   const moveTask = useCallback((id: string, status: TaskStatus) => {
+    const cur = tasks.find((t) => t.id === id);
     setTasks((list) => list.map((t) => (t.id === id ? { ...t, status } : t)));
-    sb()?.from("tasks").update({ status }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] moveTask failed:", error));
-  }, []);
+    sb()?.from("tasks").update({ status }).eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] moveTask failed:", error); notifyError("Смяната на статуса не се запази: " + error.message); }
+    });
+    if (status === "done") completeStageFor(cur);
+  }, [tasks, completeStageFor, notifyError]);
 
   const toggleDone = useCallback((id: string) => {
-    let next: { status: TaskStatus; progress: number } | null = null;
-    setTasks((list) => list.map((t) => {
-      if (t.id !== id) return t;
-      next = { status: t.status === "done" ? "todo" : "done", progress: t.status === "done" ? Math.min(t.progress, 90) : 100 };
-      return { ...t, ...next };
-    }));
-    if (next) sb()?.from("tasks").update(next).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] toggleDone failed:", error));
-  }, []);
+    // Compute from state, not inside the updater — React may defer updaters, so
+    // `next` would still be null when the DB write below fires.
+    const cur = tasks.find((t) => t.id === id);
+    if (!cur) return;
+    const next = cur.status === "done"
+      ? { status: "todo" as TaskStatus, progress: Math.min(cur.progress, 90) }
+      : { status: "done" as TaskStatus, progress: 100 };
+    setTasks((list) => list.map((t) => (t.id === id ? { ...t, ...next } : t)));
+    sb()?.from("tasks").update(next).eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] toggleDone failed:", error); notifyError("Смяната на статуса не се запази: " + error.message); }
+    });
+    if (next.status === "done") completeStageFor(cur);
+  }, [tasks, completeStageFor, notifyError]);
+
+  // Settle a worker's dues: mark every DONE unpaid task of theirs as paid and
+  // tell them. The per-task paid flag keeps history (what was paid when).
+  const markWorkerPaid = useCallback((initials: string) => {
+    const now = new Date().toISOString();
+    // Compute from state, not inside the updater (see toggleDone) — this is why
+    // "Платено" used to revert: `ids` was empty when the DB write was skipped.
+    const due = tasks.filter((t) => t.assignee === initials && t.status === "done" && !t.paid);
+    if (!due.length) return;
+    const ids = due.map((t) => t.id);
+    const total = due.reduce((a, t) => a + (t.pay_amount || 0), 0);
+    setTasks((list) => list.map((t) => (ids.includes(t.id) ? { ...t, paid: true, paid_at: now } : t)));
+    sb()?.from("tasks").update({ paid: true, paid_at: now }).in("id", ids).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] markWorkerPaid failed:", error); notifyError("„Платено“ не се запази: " + error.message); }
+    });
+    notify(initials, `Плащане към теб е отбелязано: $${Math.round(total).toLocaleString("en-US")} за ${ids.length} задачи`, { entity_type: "pay", entity_id: initials });
+    logActivity(`отбеляза плащане $${Math.round(total).toLocaleString("en-US")} към ${initials}`);
+  }, [tasks, notify, notifyError, logActivity]);
 
   const value: Store = {
-    clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, currentUser, loading, usingMock: !supabaseConfigured, signOut,
-    addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign, logTime,
+    clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
+    addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval,
+    addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
-    advanceStage, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole,
+    advanceStage, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, visibleClients,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,
-    addTask, updateTask, deleteTask, moveTask, toggleDone,
+    addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid,
   };
 
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={value}>
+      {children}
+      {toasts.length > 0 && (
+        <div style={{ position: "fixed", bottom: 16, right: 16, zIndex: "var(--bm-z-toast)" as unknown as number, display: "flex", flexDirection: "column", gap: 8, maxWidth: 380 }}>
+          {toasts.map((t) => (
+            <div key={t.id} className="bm-alert bm-alert--danger" role="alert" style={{ boxShadow: "var(--bm-shadow-lg)", cursor: "pointer" }} onClick={() => setToasts((list) => list.filter((x) => x.id !== t.id))}>
+              {t.msg}
+            </div>
+          ))}
+        </div>
+      )}
+    </StoreContext.Provider>
+  );
 }
 
 export function useStore() {

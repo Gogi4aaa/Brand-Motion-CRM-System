@@ -9,6 +9,7 @@ import { fmtK, canAccess } from "@/lib/data";
 const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Табло", icon: "dashboard" },
   { href: "/tasks", label: "Задачи", icon: "tasks" },
+  { href: "/ideas", label: "Идеи", icon: "comment" },
   { href: "/pipeline", label: "Сделки", icon: "pipeline" },
   { href: "/clients", label: "Клиенти", icon: "clients" },
   { href: "/calendar", label: "Съдържание", icon: "calendar" },

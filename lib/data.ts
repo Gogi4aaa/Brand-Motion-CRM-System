@@ -53,7 +53,48 @@ export interface Task {
   due: string;
   progress: number;
   time_logged?: number; // seconds
+  estimate_hours?: number; // planned effort — drives the workload view
+  pay_amount?: number; // what the assignee earns for this task (admin sets it)
+  paid?: boolean; // admin marked this task's pay as settled
+  paid_at?: string | null;
+  visibility?: "private" | "team"; // private = admin + assignee only
+  content_item_id?: string | null; // set on tasks auto-created from production
+  stage_key?: string | null; // which production stage spawned this task
 }
+
+// Private tasks are between the admin and the assignee; everything else is team-wide.
+// Production handoff tasks (content_item_id set) stay visible to managers too —
+// they distribute the stage work, so they keep oversight of the whole chain.
+export const canSeeTask = (t: Task, level: AccessRole, initials: string) =>
+  t.visibility !== "private" || level === "admin" || t.assignee === initials ||
+  (level === "manager" && !!t.content_item_id);
+
+// Which clients this member may see. Empty list: workers see nothing until the
+// admin assigns clients; managers keep full visibility (back-compat); admins all.
+export function visibleClientsFor(level: AccessRole, clientIds: string[] | undefined, clients: Client[]): Client[] {
+  if (level === "admin") return clients;
+  const ids = clientIds || [];
+  if (ids.length === 0) return level === "manager" ? clients : [];
+  return clients.filter((c) => ids.includes(c.id));
+}
+
+// Per-worker payout summary derived from tasks:
+//   owed      — done, not yet paid (this is what the admin owes right now)
+//   upcoming  — agreed pay on tasks still in progress
+//   paidTotal — already settled
+export function payoutFor(tasks: Task[], initials: string) {
+  const mine = tasks.filter((t) => t.assignee === initials);
+  const sum = (list: Task[]) => list.reduce((a, t) => a + (t.pay_amount || 0), 0);
+  return {
+    owed: sum(mine.filter((t) => t.status === "done" && !t.paid)),
+    owedCount: mine.filter((t) => t.status === "done" && !t.paid && (t.pay_amount || 0) > 0).length,
+    upcoming: sum(mine.filter((t) => t.status !== "done" && !t.paid)),
+    paidTotal: sum(mine.filter((t) => t.paid)),
+  };
+}
+
+// Weekly capacity per person (hours) — over this is flagged as overloaded.
+export const WEEKLY_CAPACITY_HOURS = 40;
 
 export type CampaignStatus = "planning" | "active" | "paused" | "completed";
 
@@ -105,6 +146,7 @@ export const ROLE_LABELS: Record<AccessRole, string> = {
 // (tasks/content/production) — no money, no clients list, no sales/ads/team.
 export const NAV_ACCESS: Record<string, AccessRole[]> = {
   dashboard: ["admin", "manager", "worker"],
+  ideas: ["admin", "manager", "worker"],
   tasks: ["admin", "manager", "worker"],
   calendar: ["admin", "manager", "worker"],
   production: ["admin", "manager", "worker"],
@@ -132,6 +174,7 @@ export interface TeamMember {
   initials: string;
   role: AccessRole;
   roles?: string[]; // production role tags: strategy/script/camera/editor/review
+  client_ids?: string[]; // clients this member may see (empty = role default)
 }
 
 // ---- Video production pipeline ----
@@ -361,6 +404,11 @@ export interface ContentItem {
   title: string;
   notes: string;
   script?: string; // per-video script body (imported from .docx, editable in-app)
+  hook?: string; // opening line — first 2-3 seconds decide everything
+  hook_type?: string; // see HOOK_TYPES
+  cta?: string; // closing call to action
+  caption?: string; // platform caption for publishing
+  hashtags?: string; // space-separated hashtags
   cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
   notion_url: string;
   published?: boolean;
@@ -380,6 +428,80 @@ export const contentTypeMeta = (t: ContentType) =>
   CONTENT_TYPES.find((c) => c.id === t) || CONTENT_TYPES[0];
 
 export const seedContentItems: ContentItem[] = [];
+
+// ---- Idea Bank ----
+export type IdeaSource = "team" | "client_brief" | "trend" | "competitor" | "ai";
+export type IdeaStatus = "backlog" | "approved" | "promoted" | "archived";
+
+export interface Idea {
+  id: string;
+  client: string | null; // client id (null = general)
+  title: string;
+  description: string;
+  hook: string;
+  source: IdeaSource;
+  status: IdeaStatus;
+  votes: number;
+  created_by: string;
+  created_at?: string;
+}
+
+export const IDEA_SOURCES: { id: IdeaSource; label: string }[] = [
+  { id: "team", label: "Екип" },
+  { id: "client_brief", label: "Бриф на клиента" },
+  { id: "trend", label: "Тренд" },
+  { id: "competitor", label: "Конкурент" },
+  { id: "ai", label: "AI" },
+];
+export const ideaSourceMeta = (s: IdeaSource) =>
+  ({
+    team: { cls: "bm-badge--info", label: "Екип" },
+    client_brief: { cls: "bm-badge--neutral", label: "Бриф" },
+    trend: { cls: "bm-badge--warning", label: "Тренд" },
+    competitor: { cls: "bm-badge--danger", label: "Конкурент" },
+    ai: { cls: "bm-badge--success", label: "AI" },
+  }[s]);
+export const ideaStatusMeta = (s: IdeaStatus) =>
+  ({
+    backlog: { cls: "bm-badge--neutral", label: "Бек-лог" },
+    approved: { cls: "bm-badge--info", label: "Одобрена" },
+    promoted: { cls: "bm-badge--success", label: "В продукция" },
+    archived: { cls: "bm-badge--neutral", label: "Архив" },
+  }[s]);
+
+export const seedIdeas: Idea[] = [];
+
+// ---- Hook structure (short-form video scripts) ----
+export const HOOK_TYPES: { id: string; label: string }[] = [
+  { id: "curiosity", label: "Любопитство" },
+  { id: "pain_point", label: "Болка / проблем" },
+  { id: "list", label: "Списък (топ 3…)" },
+  { id: "authority", label: "Авторитет / експертиза" },
+  { id: "fear", label: "Страх / риск" },
+  { id: "myth_vs_fact", label: "Мит срещу факт" },
+  { id: "pattern_interrupt", label: "Прекъсване на модела" },
+];
+export const hookTypeLabel = (id: string) => HOOK_TYPES.find((h) => h.id === id)?.label || id;
+
+// ---- Client approvals (magic-link review) ----
+export type ApprovalStatus = "pending" | "approved" | "changes_requested";
+export interface Approval {
+  id: string; // the magic-link token
+  content_item_id: string;
+  client_id: string;
+  owner: string;
+  status: ApprovalStatus;
+  approver_email: string;
+  feedback: string;
+  decided_at?: string | null;
+  created_at?: string;
+}
+export const approvalStatusMeta = (s: ApprovalStatus) =>
+  ({
+    pending: { cls: "bm-badge--warning", label: "Чака одобрение" },
+    approved: { cls: "bm-badge--success", label: "Одобрено от клиента" },
+    changes_requested: { cls: "bm-badge--danger", label: "Иска промени" },
+  }[s]);
 
 // ---- New-client onboarding ----
 // Standard checklist created as tasks when a lead is converted into a client.

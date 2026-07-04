@@ -5,16 +5,17 @@ import { useStore } from "@/components/store";
 import { clientsById, contentTypeMeta, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
-  const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal } = useStore();
+  const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal, visibleClients } = useStore();
   const canImport = currentUser.level === "admin" || currentUser.level === "manager";
   const activeCycles = cycles.filter((c) => c.phase !== "published");
   const byId = clientsById(clients);
+  const allowedIds = new Set(visibleClients.map((c) => c.id));
   const [clientFilter, setClientFilter] = useState("all");
   const [mine, setMine] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
 
   const visible = contentItems.filter((c) => {
-    if (currentUser.level === "worker" && !(c.stages || []).some((s) => s.assignee === currentUser.initials)) return false;
+    if (!allowedIds.has(c.client)) return false;
     if (clientFilter !== "all" && c.client !== clientFilter) return false;
     if (mine) {
       const cur = (c.stages || []).find((s) => s.key === (c.current_stage || "strategy"));
@@ -39,7 +40,7 @@ export default function ProductionPage() {
           )}
           <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
             <option value="all">Всички клиенти</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
       </div>

@@ -1,7 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login"];
+// /review + its API are the client-facing magic-link approval pages — public
+// by design; access control is the unguessable token itself.
+const PUBLIC_PATHS = ["/login", "/review", "/api/review"];
 
 /** Refreshes the Supabase session cookie and gates the app: signed-out users
  *  are redirected to /login; signed-in users hitting /login go to /dashboard. */

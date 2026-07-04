@@ -79,8 +79,11 @@ function ThemeToggle() {
 
 export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pathname = usePathname();
-  const { openModal } = useStore();
+  const { openModal, currentUser } = useStore();
   const isTasks = pathname.startsWith("/tasks");
+  // Global quick-create: invoices only exist for admins — everyone else gets
+  // "Нова задача" everywhere so there's nothing confusing to click.
+  const invoiceHere = currentUser.isAdmin && !isTasks;
 
   return (
     <header className="bm-topbar">
@@ -91,13 +94,13 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
         <span style={{ position: "absolute", left: 12, color: "var(--bm-text-subtle)", display: "flex" }}>
           <Icon name="search" />
         </span>
-        <input className="bm-input" style={{ paddingLeft: 38 }} placeholder="Търси клиенти, фактури, задачи…" />
+        <input className="bm-input" style={{ paddingLeft: 38 }} placeholder={currentUser.level === "worker" ? "Търси задачи…" : "Търси клиенти, фактури, задачи…"} />
       </div>
       <div style={{ flex: 1 }} />
       <ThemeToggle />
       <Notifications />
-      <button className="bm-btn bm-btn--primary" onClick={() => openModal(isTasks ? { kind: "task", mode: "create" } : { kind: "invoice", mode: "create" })}>
-        <Icon name="plus" /> <span className="bm-hide-xs">{isTasks ? "Нова задача" : "Нова фактура"}</span>
+      <button className="bm-btn bm-btn--primary" onClick={() => openModal(invoiceHere ? { kind: "invoice", mode: "create" } : { kind: "task", mode: "create" })}>
+        <Icon name="plus" /> <span className="bm-hide-xs">{invoiceHere ? "Нова фактура" : "Нова задача"}</span>
       </button>
     </header>
   );

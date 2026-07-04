@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
-import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull } from "@/lib/data";
+import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor } from "@/lib/data";
 
 function ago(iso: string) {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -53,11 +53,13 @@ export default function DashboardPage() {
           <h1>Добро утро, {firstName}</h1>
           <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{showMoney ? "Ето какво се случва в агенцията днес." : "Ето твоите задачи за деня."}</p>
         </div>
-        <div className="bm-tabs" style={{ border: "none" }}>
-          <button className="bm-tab" aria-selected>Днес</button>
-          <button className="bm-tab">Тази седмица</button>
-          <button className="bm-tab">Месец</button>
-        </div>
+        {showMoney && (
+          <div className="bm-tabs" style={{ border: "none" }}>
+            <button className="bm-tab" aria-selected>Днес</button>
+            <button className="bm-tab">Тази седмица</button>
+            <button className="bm-tab">Месец</button>
+          </div>
+        )}
       </div>
 
       <section className="bm-stats">
@@ -73,6 +75,7 @@ export default function DashboardPage() {
             <Kpi label="Моите отворени задачи" value={myOpen} deltaCls="bm-text-subtle" delta="за вършене" />
             <Kpi label="Завършени от мен" value={myDone} deltaCls="bm-stat__delta--up" delta="готови" />
             <Kpi label="Видеа при мен" value={myVideos} deltaCls="bm-text-subtle" delta="в продукция" />
+            <Kpi label="За получаване" value={fmtFull(payoutFor(tasks, currentUser.initials).owed)} deltaCls="bm-stat__delta--up" delta="от завършени задачи" />
           </>
         )}
       </section>
