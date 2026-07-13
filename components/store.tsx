@@ -55,7 +55,7 @@ import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraft
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
 
 export interface CurrentUser { name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
-export interface ActivityItem { id: string; actor_name: string; actor_initials: string; action: string; created_at: string }
+export interface ActivityItem { id: string; actor_name: string; actor_initials: string; action: string; created_at: string; audience?: "team" | "admin" }
 export interface NotificationItem { id: string; recipient: string; actor_name: string; actor_initials: string; body: string; link: string; entity_type: string; entity_id: string; read: boolean; created_at: string }
 
 export type Modal =
@@ -394,14 +394,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { client.removeChannel(ch); };
   }, [rtToken]);
 
-  const logActivity = useCallback((action: string) => {
+  // audience: 'admin' за пари/клиенти/сделки — RLS (миграция 0025) не ги
+  // връща на мениджъри и сътрудници; 'team' за производствената работа.
+  const logActivity = useCallback((action: string, audience: "team" | "admin" = "team") => {
     const item: ActivityItem = {
       id: "a-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
       actor_name: currentUser.name, actor_initials: currentUser.initials,
-      action, created_at: new Date().toISOString(),
+      action, created_at: new Date().toISOString(), audience,
     };
     setActivity((list) => [item, ...list].slice(0, 20));
-    sb()?.from("activity").insert({ actor_name: item.actor_name, actor_initials: item.actor_initials, action }).then(({ error }) => {
+    sb()?.from("activity").insert({ actor_name: item.actor_name, actor_initials: item.actor_initials, action, audience }).then(({ error }) => {
       if (error) console.error("[BrandMotion] logActivity failed:", error);
     });
   }, [currentUser]);
@@ -461,7 +463,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const row = { id: "l-" + Date.now(), name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner };
     setLeads((list) => [...list, row]);
     sb()?.from("leads").insert(row).then(({ error }) => error && console.error("[BrandMotion] addLead failed:", error));
-    logActivity(`добави клиент-възможност ${f.name}`);
+    logActivity(`добави клиент-възможност ${f.name}`, "admin");
     setModal(null);
   }, [logActivity]);
 
@@ -483,7 +485,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setLeads((list) => list.map((l) => { if (l.id === id) lead = l; return l.id === id ? { ...l, stage } : l; }));
     sb()?.from("leads").update({ stage }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] moveLead failed:", error));
     if (stage === "won" && lead) {
-      logActivity(`спечели сделка ${lead.name}`);
+      logActivity(`спечели сделка ${lead.name}`, "admin");
       // Won + not yet converted → open the onboarding confirm gate.
       if (!lead.client_id) setModal({ kind: "onboard", lead: { ...lead, stage: "won" } });
     }
@@ -543,7 +545,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setLeads((list) => list.map((l) => (l.id === leadId ? { ...l, stage: "won", client_id: id } : l)));
     sb()?.from("leads").update({ stage: "won", client_id: id }).eq("id", leadId).then(({ error }) => error && console.error("[BrandMotion] onboard link failed:", error));
 
-    logActivity(`включи клиент ${f.name} · ${taskRows.length} задачи`);
+    logActivity(`включи клиент ${f.name} · ${taskRows.length} задачи`, "admin");
     setModal(null);
   }, [leads, clients, team, currentUser.initials, startCycle, logActivity]);
 
@@ -556,7 +558,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sb()?.from("campaigns").insert(row).then(({ error }) => error && console.error("[BrandMotion] addCampaign failed:", error));
       return [...list, { id, name: f.name, client: f.client, status: f.status, channel: f.channel, budget: f.budget, starts: f.starts, ends: f.ends }];
     });
-    logActivity(`стартира кампания ${f.name}`);
+    logActivity(`стартира кампания ${f.name}`, "admin");
     setModal(null);
   }, [logActivity]);
 
@@ -588,7 +590,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const row = { id: "ad-" + Date.now(), client_id: f.client || null, name: f.name, objective: f.objective, budget: f.budget, audience: f.audience, primary_text: f.primary_text, headline: f.headline, status: "draft" as const };
     setAdDrafts((list) => [{ id: row.id, client: row.client_id, name: f.name, objective: f.objective, budget: f.budget, audience: f.audience, primary_text: f.primary_text, headline: f.headline, status: "draft" }, ...list]);
     sb()?.from("ad_drafts").insert(row).then(({ error }) => error && console.error("[BrandMotion] addAdDraft failed:", error));
-    logActivity(`създаде рекламна чернова ${f.name}`);
+    logActivity(`създаде рекламна чернова ${f.name}`, "admin");
     setModal(null);
   }, [logActivity]);
 
@@ -611,7 +613,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     let name = "";
     setAdDrafts((list) => list.map((a) => { if (a.id === id) name = a.name; return a.id === id ? { ...a, status: "published" } : a; }));
     sb()?.from("ad_drafts").update({ status: "published" }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] publishAd failed:", error));
-    if (name) logActivity(`публикува реклама ${name} в Meta`);
+    if (name) logActivity(`публикува реклама ${name} в Meta`, "admin");
     setModal(null);
   }, [logActivity]);
 
@@ -1039,7 +1041,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return [...list, row as Client];
     });
-    logActivity(`добави клиент ${f.name}`);
+    logActivity(`добави клиент ${f.name}`, "admin");
     setModal(null);
   }, [logActivity, notifyError]);
 
@@ -1049,7 +1051,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb()?.from("clients").update(patch).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] updateClient failed:", error.message || error); notifyError(`Промяната по клиента не се запази: ${error.message || "неизвестна грешка"}`); }
     });
-    logActivity(`обнови клиент ${f.name}`);
+    logActivity(`обнови клиент ${f.name}`, "admin");
     setModal(null);
   }, [logActivity, notifyError]);
 
@@ -1061,7 +1063,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb()?.from("clients").delete().eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] deleteClient failed:", error.message || error); notifyError(`Клиентът не се изтри: ${error.message || "неизвестна грешка"}`); }
     });
-    logActivity(`изтри клиент ${name}`);
+    logActivity(`изтри клиент ${name}`, "admin");
     setModal(null);
   }, [clients, logActivity, notifyError]);
 
@@ -1073,7 +1075,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sb()?.from("invoices").insert(row).then(({ error }) => error && console.error("[BrandMotion] addInvoice failed:", error));
       return [{ id, client: f.client, amount: f.amount, status: f.status, issued: "Today", due: f.due || "—" }, ...list];
     });
-    logActivity(`създаде фактура за ${clients.find((c) => c.id === f.client)?.name || f.client}`);
+    logActivity(`създаде фактура за ${clients.find((c) => c.id === f.client)?.name || f.client}`, "admin");
     setModal(null);
   }, [clients, logActivity]);
 
@@ -1081,21 +1083,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const patch = { client_id: f.client, amount: f.amount, status: f.status, due: f.due || "—" };
     setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount: f.amount, status: f.status, due: f.due || "—" } : iv)));
     sb()?.from("invoices").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateInvoice failed:", error));
-    logActivity(`обнови фактура ${id}`);
+    logActivity(`обнови фактура ${id}`, "admin");
     setModal(null);
   }, [logActivity]);
 
   const deleteInvoice = useCallback((id: string) => {
     setInvoices((list) => list.filter((iv) => iv.id !== id));
     sb()?.from("invoices").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteInvoice failed:", error));
-    logActivity(`изтри фактура ${id}`);
+    logActivity(`изтри фактура ${id}`, "admin");
     setModal(null);
   }, [logActivity]);
 
   const markPaid = useCallback((id: string) => {
     setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, status: "paid" } : iv)));
     sb()?.from("invoices").update({ status: "paid" }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] markPaid failed:", error));
-    logActivity(`отбеляза ${id} като платена`);
+    logActivity(`отбеляза ${id} като платена`, "admin");
   }, [logActivity]);
 
   // ---- Tasks ----
@@ -1189,7 +1191,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (error) { console.error("[BrandMotion] markWorkerPaid failed:", error); notifyError("„Платено“ не се запази: " + error.message); }
     });
     notify(initials, `Плащане към теб е отбелязано: $${Math.round(total).toLocaleString("en-US")} за ${ids.length} задачи`, { entity_type: "pay", entity_id: initials });
-    logActivity(`отбеляза плащане $${Math.round(total).toLocaleString("en-US")} към ${initials}`);
+    logActivity(`отбеляза плащане $${Math.round(total).toLocaleString("en-US")} към ${initials}`, "admin");
   }, [tasks, notify, notifyError, logActivity]);
 
   const value: Store = {

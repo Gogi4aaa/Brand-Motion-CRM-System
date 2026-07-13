@@ -73,7 +73,10 @@ export default function DashboardPage() {
   const myOpen = tasks.filter((t) => t.assignee === currentUser.initials && t.status !== "done").length;
   const myDone = tasks.filter((t) => t.assignee === currentUser.initials && t.status === "done").length;
   const myVideos = contentItems.filter((c) => (c.stages || []).some((s) => s.key === (c.current_stage || "strategy") && s.assignee === currentUser.initials)).length;
-  const feed = activity.filter((a) => inPeriod(a.created_at)).map((a) => ({ who: a.actor_initials, name: a.actor_name.split(" ")[0] || a.actor_name, text: a.action, when: ago(a.created_at) }));
+  // RLS вече не връща 'admin' записи на не-админи; филтърът тук е втора защита.
+  const feed = activity
+    .filter((a) => inPeriod(a.created_at) && (currentUser.isAdmin || a.audience !== "admin"))
+    .map((a) => ({ who: a.actor_initials, name: a.actor_name.split(" ")[0] || a.actor_name, text: a.action, when: ago(a.created_at) }));
   const shownNotifications = notifications.filter((n) => inPeriod(n.created_at));
 
   const outstanding = invoices.filter((i) => i.status === "pending" || i.status === "overdue");
