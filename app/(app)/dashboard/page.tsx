@@ -111,9 +111,9 @@ export default function DashboardPage() {
       <section className="bm-stats">
         {showMoney ? (
           <>
-            <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-stat__delta--up" delta="▲ 12% спрямо м.м." />
-            <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls="bm-stat__delta--down" delta="▼ 4% по-бавно събиране" />
-            <Kpi label="Отворени задачи" value={openTasks.length} deltaCls="bm-text-subtle" delta="5 с краен срок тази седмица" />
+            <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-text-subtle" delta={`от общо ${clients.length}`} />
+            <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls={overdue.length ? "bm-stat__delta--down" : "bm-text-subtle"} delta={overdue.length ? `${overdue.length} просрочени` : "няма просрочени"} />
+            <Kpi label="Отворени задачи" value={openTasks.length} deltaCls="bm-text-subtle" delta={`${openTasks.filter((t) => t.priority === "high").length} с висок приоритет`} />
             <Kpi label={"Платени " + periodWord} value={fmtK(sum(paid))} deltaCls="bm-stat__delta--up" delta={`${paid.length} фактури`} />
           </>
         ) : showTeamOps ? (

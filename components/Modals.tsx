@@ -104,7 +104,7 @@ function ClientModal() {
           <div className="bm-field"><label className="bm-label">Име на фирма</label><input className="bm-input" {...register("name")} placeholder="напр. Фирма ООД" /><Err msg={errors.name?.message} /></div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Индустрия</label><input className="bm-input" {...register("industry")} placeholder="напр. Търговия" /><Err msg={errors.industry?.message} /></div>
-            <div className="bm-field"><label className="bm-label">Месечно (USD)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Месечно (EUR)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
           </div>
           <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="Active">Активен</option><option value="At risk">Риск</option><option value="Onboarding">Включване</option></select></div>
@@ -185,7 +185,7 @@ function TaskModal() {
           {currentUser.isAdmin && (
             <>
               <div className="bm-field">
-                <label className="bm-label">Възнаграждение за изпълнителя (USD)</label>
+                <label className="bm-label">Възнаграждение за изпълнителя (EUR)</label>
                 <input className="bm-input" type="number" step="0.01" {...register("pay_amount", { valueAsNumber: true })} placeholder="0" />
                 <Err msg={errors.pay_amount?.message} />
                 {editing?.paid && <span className="bm-badge bm-badge--success" style={{ alignSelf: "flex-start", marginTop: 4 }}>Платена</span>}
@@ -241,7 +241,7 @@ function LeadModal() {
           <div className="bm-field"><label className="bm-label">Сделка / фирма</label><input className="bm-input" {...register("name")} placeholder="напр. Халсион Хотели" /><Err msg={errors.name?.message} /></div>
           <div className="bm-field"><label className="bm-label">Контакт</label><input className="bm-input" {...register("contact")} placeholder="напр. Иван Петров" /></div>
           <div className="bm-form-row bm-form-row--3">
-            <div className="bm-field"><label className="bm-label">Стойност (USD)</label><input className="bm-input" type="number" {...register("value", { valueAsNumber: true })} /><Err msg={errors.value?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Стойност (EUR)</label><input className="bm-input" type="number" {...register("value", { valueAsNumber: true })} /><Err msg={errors.value?.message} /></div>
             <div className="bm-field"><label className="bm-label">Етап</label><select className="bm-select" {...register("stage")}><option value="new">Нов</option><option value="contacted">Свързан</option><option value="proposal">Оферта</option><option value="won">Спечелен</option><option value="lost">Загубен</option></select></div>
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
           </div>
@@ -283,7 +283,7 @@ function OnboardModal() {
           <div className="bm-field"><label className="bm-label">Име на клиент</label><input className="bm-input" {...register("name")} /><Err msg={errors.name?.message} /></div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Индустрия</label><input className="bm-input" {...register("industry")} placeholder="напр. Търговия" /><Err msg={errors.industry?.message} /></div>
-            <div className="bm-field"><label className="bm-label">Месечно (USD)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Месечно (EUR)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
           </div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
@@ -331,7 +331,7 @@ function CampaignModal() {
           </div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Канал</label><input className="bm-input" {...register("channel")} placeholder="напр. Платени социални" /></div>
-            <div className="bm-field"><label className="bm-label">Бюджет (USD)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Бюджет (EUR)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
           </div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Започва</label><input className="bm-input" {...register("starts")} placeholder="напр. 1 юли" /></div>
@@ -372,7 +372,7 @@ function AdModal() {
           <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Цел</label><select className="bm-select" {...register("objective")}>{AD_OBJECTIVES.map((o) => <option key={o} value={o}>{AD_OBJECTIVE_LABELS[o] || o}</option>)}</select></div>
-            <div className="bm-field"><label className="bm-label">Бюджет (USD)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Бюджет (EUR)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
           </div>
           <div className="bm-field"><label className="bm-label">Аудитория</label><input className="bm-input" {...register("audience")} placeholder="напр. BG · 25-45 · купувачи" /></div>
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("headline")} placeholder="Кратко заглавие" /></div>
@@ -518,7 +518,7 @@ function MetricsEditor({ itemId }: { itemId: string }) {
 }
 
 function ContentModal() {
-  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, setStageAssignee, setStageStatus } = useStore();
+  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, dismissSuggestion, setStageAssignee, setStageStatus } = useStore();
   const editing = modal?.kind === "content" && modal.mode === "edit" ? modal.item : null;
   const live = editing ? contentItems.find((c) => c.id === editing.id) : null;
   const stages = live?.stages || [];
@@ -648,6 +648,23 @@ function ContentModal() {
               </div>
               {approval?.status === "changes_requested" && approval.feedback && (
                 <div className="bm-alert bm-alert--warning">Обратна връзка: „{approval.feedback}“</div>
+              )}
+              {approval?.status === "changes_requested" && approval.suggested_script && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+                  <div className="bm-label">Предложен сценарий от клиента</div>
+                  <div style={{ whiteSpace: "pre-wrap", fontSize: "var(--bm-text-sm)", background: "var(--bm-warning-50)", border: "1px solid var(--bm-warning-500)", padding: "var(--bm-space-3)", borderRadius: "var(--bm-radius-md)", maxHeight: 220, overflowY: "auto" }}>
+                    {approval.suggested_script}
+                  </div>
+                  <div style={{ display: "flex", gap: "var(--bm-space-2)" }}>
+                    <button
+                      type="button"
+                      className="bm-btn bm-btn--primary bm-btn--sm"
+                      onClick={() => { setValue("script", approval.suggested_script || ""); dismissSuggestion(approval.id); }}
+                      title="Пълни полето Сценарий с редакцията — прегледай я и натисни Запази"
+                    >Приеми редакцията</button>
+                    <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => dismissSuggestion(approval.id)}>Отхвърли</button>
+                  </div>
+                </div>
               )}
               {reviewUrl ? (
                 <div style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center" }}>
@@ -821,7 +838,7 @@ function InvoiceModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
           <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Сума (USD)</label><input className="bm-input" type="number" {...register("amount", { valueAsNumber: true })} placeholder="0" /><Err msg={errors.amount?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Сума (EUR)</label><input className="bm-input" type="number" {...register("amount", { valueAsNumber: true })} placeholder="0" /><Err msg={errors.amount?.message} /></div>
             <div className="bm-field"><label className="bm-label">Падеж</label><input className="bm-input" {...register("due")} placeholder="15 юли" /></div>
           </div>
           <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="draft">Чернова</option><option value="pending">Чакаща</option><option value="overdue">Просрочена</option><option value="paid">Платена</option></select></div>

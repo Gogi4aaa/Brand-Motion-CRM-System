@@ -42,7 +42,7 @@ export default function PipelinePage() {
         <Kpi label="Активни сделки" value={fmtK(sum(open))} delta={`${open.length} активни сделки`} />
         <Kpi label="Спечелени" value={fmtK(sum(won))} deltaCls="bm-stat__delta--up" delta={`${won.length} затворени`} />
         <Kpi label="Успеваемост" value={winRate + "%"} delta={`${closed} затворени сделки`} />
-        <Kpi label="Средна сделка" value={leads.length ? fmtK(sum(leads) / leads.length) : "$0"} delta="по всички сделки" />
+        <Kpi label="Средна сделка" value={leads.length ? fmtK(sum(leads) / leads.length) : "€0"} delta="по всички сделки" />
       </section>
 
       <div className="bm-board bm-board--5">

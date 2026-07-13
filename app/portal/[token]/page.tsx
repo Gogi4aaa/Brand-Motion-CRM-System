@@ -39,7 +39,7 @@ const INV_LABELS: Record<string, { label: string; cls: string }> = {
 const MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
 
 const nf = new Intl.NumberFormat("bg-BG");
-const money = (n: number) => "$" + nf.format(n);
+const money = (n: number) => "€" + nf.format(n);
 const fmtDay = (iso: string) => {
   const d = new Date(iso + "T00:00:00");
   return isNaN(d.getTime()) ? iso : `${d.getDate()} ${MONTHS[d.getMonth()]}`;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "./Icon";
 import { useStore } from "./store";
-import { fmtK, canAccess, memberTitle } from "@/lib/data";
+import { fmtK, canAccess, memberTitle, inCurrentMonth } from "@/lib/data";
 
 const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Табло", icon: "dashboard" },
@@ -22,10 +22,16 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
-  const { invoices, currentUser, signOut, team } = useStore();
-  const collected = invoices.filter((i) => i.status === "paid").reduce((a, b) => a + b.amount, 0);
+  const { invoices, clients, currentUser, signOut, team } = useStore();
   const me = team.find((m) => m.initials === currentUser.initials);
   const myTitle = me ? memberTitle(me) : currentUser.role;
+
+  // Събрано ТОЗИ месец срещу целта (сборът от месечните такси на активните
+  // клиенти) — реални числа вместо закования някога „Юни · 72%“.
+  const collected = invoices.filter((i) => i.status === "paid" && inCurrentMonth(i.created_at)).reduce((a, b) => a + b.amount, 0);
+  const target = clients.filter((c) => c.status === "Active").reduce((a, b) => a + b.mrr, 0);
+  const pct = target > 0 ? Math.min(100, Math.round((collected / target) * 100)) : null;
+  const monthName = new Date().toLocaleDateString("bg-BG", { month: "long" });
 
   return (
     <aside className={"bm-sidebar" + (open ? " bm-sidebar--open" : "")}>
@@ -86,13 +92,13 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "var(--bm-tracking-wide)" }}>
-              Събрано · Юни
+              Събрано · {monthName}
             </span>
-            <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-success-600)", fontWeight: 700 }}>72%</span>
+            {pct !== null && <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-success-600)", fontWeight: 700 }} title="Спрямо сбора от месечните такси на активните клиенти">{pct}%</span>}
           </div>
           <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700, letterSpacing: "var(--bm-tracking-tight)" }}>{fmtK(collected)}</div>
           <div className="bm-progress">
-            <div className="bm-progress__bar" style={{ width: "72%" }} />
+            <div className="bm-progress__bar" style={{ width: (pct ?? 0) + "%" }} />
           </div>
         </div>
         )}

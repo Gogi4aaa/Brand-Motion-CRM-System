@@ -30,7 +30,9 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState("");
-  const [email, setEmail] = useState("");
+  // В режим „Искам промени“ клиентът пише директно в сценария; изпраща се
+  // само ако реално се различава от оригинала.
+  const [draftScript, setDraftScript] = useState("");
   const [mode, setMode] = useState<"view" | "changes">("view");
   const [submitting, setSubmitting] = useState(false);
 
@@ -40,10 +42,13 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || "Грешка");
         setData(j as ReviewData);
+        setDraftScript((j as ReviewData).script || "");
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
+
+  const scriptChanged = !!data && draftScript.trim() !== (data.script || "").trim();
 
   const decide = async (decision: "approved" | "changes_requested") => {
     setSubmitting(true);
@@ -52,7 +57,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
       const r = await fetch(`/api/review/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, feedback, email }),
+        body: JSON.stringify({ decision, feedback, suggested_script: decision === "changes_requested" && scriptChanged ? draftScript : "" }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Грешка");
@@ -99,10 +104,23 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
               <div style={{ fontWeight: 600 }}>{data.hook}</div>
             </div>
           )}
-          {data.script && (
+          {(data.script || mode === "changes") && (
             <div>
-              <div className="bm-label">Сценарий</div>
-              <div style={{ whiteSpace: "pre-wrap", fontSize: "var(--bm-text-sm)", background: "var(--bm-surface-2)", padding: "var(--bm-space-3)", borderRadius: "var(--bm-radius-md)" }}>{data.script}</div>
+              <div className="bm-label">Сценарий{mode === "changes" ? " — редактирай директно в текста" : ""}</div>
+              {mode === "changes" && data.status === "pending" ? (
+                <>
+                  <textarea
+                    className="bm-textarea"
+                    style={{ minHeight: 220, fontSize: "var(--bm-text-sm)" }}
+                    value={draftScript}
+                    onChange={(e) => setDraftScript(e.target.value)}
+                    placeholder="Напиши как искаш да звучи сценарият…"
+                  />
+                  {scriptChanged && <span className="bm-badge bm-badge--warning" style={{ marginTop: 6 }}>Има редакции — екипът ще ги получи като предложение</span>}
+                </>
+              ) : (
+                <div style={{ whiteSpace: "pre-wrap", fontSize: "var(--bm-text-sm)", background: "var(--bm-surface-2)", padding: "var(--bm-space-3)", borderRadius: "var(--bm-radius-md)" }}>{data.script}</div>
+              )}
             </div>
           )}
           {data.cta && (
@@ -121,18 +139,14 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
 
           {decided ? (
             <div className={"bm-alert " + (data.status === "approved" ? "bm-alert--success" : "bm-alert--warning")}>
-              {data.status === "approved" ? "Одобрено — благодарим! Екипът е уведомен и видеото влиза за насрочване." : `Заявени са промени${data.feedback ? `: „${data.feedback}“` : ""}. Екипът е уведомен.`}
+              {data.status === "approved" ? "Одобрено — благодарим! Екипът е уведомен и видеото влиза за насрочване." : "Екипът получи редакцията ти и ще я отрази. Благодарим!"}
             </div>
           ) : (
             <>
-              <div className="bm-field">
-                <label className="bm-label">Твоят имейл (по избор)</label>
-                <input className="bm-input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ime@firma.bg" />
-              </div>
               {mode === "changes" && (
                 <div className="bm-field">
-                  <label className="bm-label">Какви промени искаш?</label>
-                  <textarea className="bm-textarea" value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Опиши конкретно какво да променим…" />
+                  <label className="bm-label">Бележка към екипа (по избор)</label>
+                  <textarea className="bm-textarea" value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Ако предпочиташ, опиши промените с думи…" />
                 </div>
               )}
               {error && <div className="bm-alert bm-alert--danger">{error}</div>}
@@ -144,8 +158,8 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
                   </>
                 ) : (
                   <>
-                    <button className="bm-btn bm-btn--ghost" onClick={() => setMode("view")}>Назад</button>
-                    <button className="bm-btn bm-btn--danger" disabled={submitting || !feedback.trim()} onClick={() => decide("changes_requested")}>{submitting ? "Записване…" : "Изпрати промените"}</button>
+                    <button className="bm-btn bm-btn--ghost" onClick={() => { setMode("view"); setDraftScript(data.script || ""); }}>Назад</button>
+                    <button className="bm-btn bm-btn--danger" disabled={submitting || (!feedback.trim() && !scriptChanged)} onClick={() => decide("changes_requested")}>{submitting ? "Записване…" : "Изпрати промените"}</button>
                   </>
                 )}
               </div>

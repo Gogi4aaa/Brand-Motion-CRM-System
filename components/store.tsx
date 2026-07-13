@@ -126,6 +126,7 @@ interface Store {
   promoteIdea: (id: string) => void;
   addAiIdeas: (clientId: string, list: { title: string; description: string; hook: string }[]) => void;
   requestApproval: (contentItemId: string) => Promise<string | null>;
+  dismissSuggestion: (approvalId: string) => void;
   startCycle: (clientId: string, month: string, targetCount: number) => void;
   advanceCycle: (cycleId: string, toPhase: CyclePhase) => void;
   scheduleContent: (id: string, date: string | null) => void;
@@ -827,6 +828,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return token;
   }, [approvals, contentItems, currentUser.initials, logActivity]);
 
+  // Изчиства предложената от клиента редакция, след като екипът я приеме или
+  // отхвърли — статусът и бележката на одобрението остават.
+  const dismissSuggestion = useCallback((approvalId: string) => {
+    setApprovals((list) => list.map((a) => (a.id === approvalId ? { ...a, suggested_script: "" } : a)));
+    sb()?.from("approvals").update({ suggested_script: "" }).eq("id", approvalId).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] dismissSuggestion failed:", error); notifyError("Изчистването на предложението не се запази: " + error.message); }
+    });
+  }, [notifyError]);
+
   // ---- Client portal & video results ----
   // One metrics row per video (unique on content_item_id) — the public portal
   // reads it through portal_get, the admin edits it in the content modal.
@@ -1190,13 +1200,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb()?.from("tasks").update({ paid: true, paid_at: now }).in("id", ids).then(({ error }) => {
       if (error) { console.error("[BrandMotion] markWorkerPaid failed:", error); notifyError("„Платено“ не се запази: " + error.message); }
     });
-    notify(initials, `Плащане към теб е отбелязано: $${Math.round(total).toLocaleString("en-US")} за ${ids.length} задачи`, { entity_type: "pay", entity_id: initials });
-    logActivity(`отбеляза плащане $${Math.round(total).toLocaleString("en-US")} към ${initials}`, "admin");
+    notify(initials, `Плащане към теб е отбелязано: €${Math.round(total).toLocaleString("bg-BG")} за ${ids.length} задачи`, { entity_type: "pay", entity_id: initials });
+    logActivity(`отбеляза плащане €${Math.round(total).toLocaleString("bg-BG")} към ${initials}`, "admin");
   }, [tasks, notify, notifyError, logActivity]);
 
   const value: Store = {
     clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
-    addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval,
+    addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval, dismissSuggestion,
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,

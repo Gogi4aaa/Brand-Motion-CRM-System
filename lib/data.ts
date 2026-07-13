@@ -288,9 +288,15 @@ export const invoices: Invoice[] = [];
 export const tasks: Task[] = [];
 
 // ---- Display helpers ----
-export const fmtK = (n: number) =>
-  "$" + (Math.round(n / 100) / 10).toFixed(1).replace(/\.0$/, "") + "k";
-export const fmtFull = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
+// Валутата на агенцията е евро; bg-BG форматиране (интервал за хиляди).
+// Сумите се показват ТОЧНИ навсякъде (€1 425, не €1.4k) — fmtK остава като
+// псевдоним за старите извиквания из KPI картите.
+export const fmtFull = (n: number) => "€" + Math.round(n).toLocaleString("bg-BG");
+export const fmtK = fmtFull;
+
+// Начало на текущия месец + помощник за „платено този месец“ сметките.
+export const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime(); };
+export const inCurrentMonth = (iso?: string | null) => !!iso && new Date(iso).getTime() >= monthStart();
 
 export const clientsById = (list: Client[]) =>
   Object.fromEntries(list.map((c) => [c.id, c])) as Record<string, Client>;
@@ -535,6 +541,7 @@ export interface Approval {
   status: ApprovalStatus;
   approver_email: string;
   feedback: string;
+  suggested_script?: string; // редакцията на клиента — предложение, не презапис
   decided_at?: string | null;
   created_at?: string;
 }

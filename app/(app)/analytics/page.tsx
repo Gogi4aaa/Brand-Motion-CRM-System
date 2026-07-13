@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useStore } from "@/components/store";
-import { fmtK, PIPELINE_STAGES } from "@/lib/data";
+import { fmtK, inCurrentMonth, PIPELINE_STAGES } from "@/lib/data";
 
 function Kpi({ label, value, deltaCls, delta }: { label: string; value: string; deltaCls: string; delta: string }) {
   return (
@@ -22,7 +22,8 @@ export default function AnalyticsPage() {
   // Real aggregates
   const mrr = clients.reduce((a, b) => a + b.mrr, 0);
   const activeClients = clients.filter((c) => c.status === "Active").length;
-  const collected = invoices.filter((i) => i.status === "paid").reduce((a, b) => a + b.amount, 0);
+  const collectedMonth = invoices.filter((i) => i.status === "paid" && inCurrentMonth(i.created_at));
+  const collected = collectedMonth.reduce((a, b) => a + b.amount, 0);
   const openLeads = leads.filter((l) => l.stage !== "won" && l.stage !== "lost");
   const openPipeline = openLeads.reduce((a, b) => a + b.value, 0);
   const won = leads.filter((l) => l.stage === "won").length;
@@ -40,18 +41,13 @@ export default function AnalyticsPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <div>
           <h1>Анализи</h1>
-          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Резултати по канали и клиенти · последните 30 дни</p>
-        </div>
-        <div className="bm-tabs" style={{ border: "none" }}>
-          <button className="bm-tab" aria-selected>Днес</button>
-          <button className="bm-tab">Тази седмица</button>
-          <button className="bm-tab">Месец</button>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Приходи, сделки и събираемост по клиенти</p>
         </div>
       </div>
 
       <section className="bm-stats">
         <Kpi label="Месечен приход" value={fmtK(mrr)} deltaCls="bm-text-subtle" delta={`${activeClients} активни клиенти`} />
-        <Kpi label="Събрано" value={fmtK(collected)} deltaCls="bm-stat__delta--up" delta="платени фактури" />
+        <Kpi label="Събрано този месец" value={fmtK(collected)} deltaCls="bm-stat__delta--up" delta={`${collectedMonth.length} платени фактури`} />
         <Kpi label="Активни сделки" value={fmtK(openPipeline)} deltaCls="bm-text-subtle" delta={`${openLeads.length} активни сделки`} />
         <Kpi label="Успеваемост" value={winRate + "%"} deltaCls="bm-text-subtle" delta={`${won + lost} затворени сделки`} />
       </section>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
-import { clientsById, invStatusMeta, fmtK, type InvStatus } from "@/lib/data";
+import { clientsById, invStatusMeta, fmtK, fmtFull, monthStart, type InvStatus } from "@/lib/data";
 
 function Kpi({ label, value, color, deltaCls, delta }: { label: string; value: React.ReactNode; color?: string; deltaCls: string; delta: string }) {
   return (
@@ -24,10 +24,22 @@ export default function InvoicesPage() {
 
   const outstanding = invoices.filter((i) => i.status === "pending" || i.status === "overdue");
   const overdue = invoices.filter((i) => i.status === "overdue");
-  const paid = invoices.filter((i) => i.status === "paid");
   const drafts = invoices.filter((i) => i.status === "draft");
   const filtered = filter === "all" ? invoices : invoices.filter((i) => i.status === (filter as InvStatus));
   const sum = (a: typeof invoices) => a.reduce((x, b) => x + b.amount, 0);
+
+  // „Платени този месец“ смята само фактурите от текущия месец; делтата е
+  // реално сравнение с предходния, не декоративен процент.
+  const ms = monthStart();
+  const prevMs = (() => { const d = new Date(ms); d.setMonth(d.getMonth() - 1); return d.getTime(); })();
+  const ts = (i: { created_at?: string }) => (i.created_at ? new Date(i.created_at).getTime() : 0);
+  const paidThisMonth = invoices.filter((i) => i.status === "paid" && ts(i) >= ms);
+  const paidPrevMonth = invoices.filter((i) => i.status === "paid" && ts(i) >= prevMs && ts(i) < ms);
+  const prevSum = sum(paidPrevMonth);
+  const curSum = sum(paidThisMonth);
+  const paidDelta = prevSum > 0
+    ? { cls: curSum >= prevSum ? "bm-stat__delta--up" : "bm-stat__delta--down", text: `${curSum >= prevSum ? "▲" : "▼"} ${Math.abs(Math.round(((curSum - prevSum) / prevSum) * 100))}% спрямо ${fmtK(prevSum)} м.м.` }
+    : { cls: "bm-text-subtle", text: `${paidThisMonth.length} ${paidThisMonth.length === 1 ? "фактура" : "фактури"}` };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
@@ -42,7 +54,7 @@ export default function InvoicesPage() {
       <section className="bm-stats">
         <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls="bm-text-subtle" delta={`${outstanding.length} отворени фактури`} />
         <Kpi label="Просрочени" value={fmtK(sum(overdue))} color="var(--bm-danger-600)" deltaCls="bm-stat__delta--down" delta={`${overdue.length} изискват внимание`} />
-        <Kpi label="Платени този месец" value={fmtK(sum(paid))} color="var(--bm-success-600)" deltaCls="bm-stat__delta--up" delta="▲ 23%" />
+        <Kpi label="Платени този месец" value={fmtK(curSum)} color="var(--bm-success-600)" deltaCls={paidDelta.cls} delta={paidDelta.text} />
         <Kpi label="Чернови" value={drafts.length} deltaCls="bm-text-subtle" delta="Готови за изпращане" />
       </section>
 
@@ -67,7 +79,7 @@ export default function InvoicesPage() {
                     <td style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)" }}>{iv.id}</td>
                     <td><div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}><span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{c?.initials || "—"}</span> {c?.name || iv.client}</div></td>
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
-                    <td className="bm-table__num">{"$" + iv.amount.toLocaleString("en-US")}</td>
+                    <td className="bm-table__num">{fmtFull(iv.amount)}</td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.issued}</td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
                     <td style={{ textAlign: "right" }}>

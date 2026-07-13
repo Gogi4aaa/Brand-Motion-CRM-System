@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 // SECURITY DEFINER RPCs review_get / review_decide, which look rows up only
 // by the unguessable token — the anon role has no table access.
 //   GET  /api/review/<token>            → the content to review
-//   POST /api/review/<token>            → { decision: 'approved'|'changes_requested', feedback?, email? }
+//   POST /api/review/<token>            → { decision: 'approved'|'changes_requested', feedback?, suggested_script? }
 
 export const runtime = "nodejs";
 
@@ -38,14 +38,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   if (decision !== "approved" && decision !== "changes_requested") {
     return NextResponse.json({ error: "Невалидно решение." }, { status: 400 });
   }
-  if (decision === "changes_requested" && !(body?.feedback || "").trim()) {
-    return NextResponse.json({ error: "Опиши какви промени искаш." }, { status: 400 });
+  const feedback = (body?.feedback || "").trim();
+  const suggested = (body?.suggested_script || "").trim();
+  if (decision === "changes_requested" && !feedback && !suggested) {
+    return NextResponse.json({ error: "Редактирай сценария или напиши бележка какви промени искаш." }, { status: 400 });
   }
   const { data, error } = await client.rpc("review_decide", {
     p_token: token,
     p_decision: decision,
-    p_feedback: (body?.feedback || "").trim(),
-    p_email: (body?.email || "").trim(),
+    p_feedback: feedback,
+    p_suggested: suggested,
   });
   if (error) {
     console.error("[BrandMotion] review_decide failed:", error);
