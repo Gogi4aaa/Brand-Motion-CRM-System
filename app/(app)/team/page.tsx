@@ -1,7 +1,7 @@
 "use client";
 
 import { useStore } from "@/components/store";
-import { PRODUCTION_ROLES, ROLE_LABELS, type AccessRole } from "@/lib/data";
+import { PRODUCTION_ROLES, ROLE_LABELS, memberTitle, type AccessRole } from "@/lib/data";
 
 const ROLE_HELP: Record<AccessRole, string> = {
   admin: "Пълен достъп до всичко, вкл. фактури и анализи.",
@@ -53,7 +53,7 @@ export default function TeamPage() {
                       <span className="bm-avatar bm-avatar--sm">{m.initials}</span>
                       <div>
                         <div style={{ fontWeight: 600 }}>{m.name} {isMe && <span className="bm-text-subtle" style={{ fontWeight: 400 }}>(вие)</span>}</div>
-                        <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{m.initials}</div>
+                        <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{m.initials} · {memberTitle(m)}</div>
                       </div>
                     </div>
                   </td>

@@ -152,11 +152,11 @@ a {
 .bm-ai-row { display: grid; grid-template-columns: 220px 1fr auto; gap: var(--bm-space-3); align-items: end; }
 @media (max-width: 640px) { .bm-ai-row { grid-template-columns: 1fr; align-items: stretch; } }
 
-/* Phones: modals become near-bottom sheets with breathing room around them —
-   capped height and a scrollable body instead of covering the whole screen. */
-@media (max-width: 560px) {
-  .bm-modal-overlay { padding: var(--bm-space-3); padding-bottom: calc(var(--bm-space-4) + env(safe-area-inset-bottom)); align-items: flex-end; }
-  .bm-modal { max-width: none; max-height: 88dvh; border-radius: var(--bm-radius-xl); }
+/* Phones & small tablets: modals keep breathing room on all sides — capped
+   height and a scrollable body instead of covering the whole screen. */
+@media (max-width: 768px) {
+  .bm-modal-overlay { padding: var(--bm-space-4); padding-bottom: calc(var(--bm-space-5) + env(safe-area-inset-bottom)); align-items: center; }
+  .bm-modal { max-height: 86dvh; border-radius: var(--bm-radius-xl); }
   .bm-modal__body { padding: var(--bm-space-4); }
   .bm-modal__header { padding: var(--bm-space-4); }
   .bm-modal__footer { padding: var(--bm-space-3) var(--bm-space-4); }

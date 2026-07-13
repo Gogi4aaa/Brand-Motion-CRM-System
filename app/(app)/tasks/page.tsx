@@ -3,18 +3,23 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
-import { clientsById, prioMeta, TASK_COLUMNS, fmtFull, payoutFor, canSeeTask, WEEKLY_CAPACITY_HOURS, type TaskStatus } from "@/lib/data";
+import { clientsById, prioMeta, TASK_COLUMNS, fmtFull, payoutFor, canSeeTask, isArchived, BOARD_RETENTION_DAYS, WEEKLY_CAPACITY_HOURS, type TaskStatus } from "@/lib/data";
 
 export default function TasksPage() {
   const { clients, tasks, team, moveTask, openModal, currentUser, markWorkerPaid, visibleClients } = useStore();
   const [filter, setFilter] = useState("all");
+  const [showOld, setShowOld] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const byId = clientsById(clients);
   const mine = currentUser.level === "worker" ? tasks.filter((t) => t.assignee === currentUser.initials) : tasks;
   // Private tasks stay between the admin and the assignee — hidden from everyone else.
   const scoped = mine.filter((t) => canSeeTask(t, currentUser.level, currentUser.initials));
 
-  const visible = scoped.filter((t) => filter === "all" || t.client === filter);
+  // Done по-старо от BOARD_RETENTION_DAYS се прибира от борда; сумите долу
+  // (възнаграждения, натовареност) винаги смятат върху пълния списък tasks.
+  const oldDoneCount = scoped.filter((t) => t.status === "done" && isArchived(t.done_at) && (filter === "all" || t.client === filter)).length;
+  const visible = scoped.filter((t) =>
+    (filter === "all" || t.client === filter) && (showOld || t.status !== "done" || !isArchived(t.done_at)));
   const clientCount = new Set(scoped.map((t) => t.client)).size;
 
   // Workload: planned hours per person across open (non-done) tasks vs the
@@ -43,7 +48,10 @@ export default function TasksPage() {
           <h1>Задачи</h1>
           <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Влачи картите между колоните, за да смениш статуса · {visible.length} задачи в {clientCount} клиента</p>
         </div>
-        <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
+          <label className="bm-checkbox" title={`Завършените преди повече от ${BOARD_RETENTION_DAYS} дни се прибират от борда (историята и плащанията се пазят)`}>
+            <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> Стари{oldDoneCount > 0 ? ` (${oldDoneCount})` : ""}
+          </label>
           <select className="bm-select" style={{ width: "auto", minWidth: 170 }} value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">Всички клиенти</option>
             {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

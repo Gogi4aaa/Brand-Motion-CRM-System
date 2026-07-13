@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
   clients as seedClients,
   invoices as seedInvoices,
@@ -285,14 +285,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const sb = () => (supabaseConfigured ? createClient() : null);
 
+  // Realtime auth: supabase-js подава access token-а към realtime сокета само
+  // при SIGNED_IN / TOKEN_REFRESHED. При зареждане на страница с възстановена
+  // сесия (INITIAL_SESSION) сокетът остава с anon ключа и RLS блокира всички
+  // postgres_changes събития — затова "live" изглеждаше мъртво. Освен това
+  // postgres_changes абонамент, създаден ПРЕДИ токена, остава анонимен —
+  // затова каналите по-долу се (пре)абонират чак когато rtToken е наличен.
+  const [rtToken, setRtToken] = useState<string | null>(null);
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    const client = createClient();
+    const { data: sub } = client.auth.onAuthStateChange((_event, session) => {
+      const token = session?.access_token ?? null;
+      client.realtime.setAuth(token);
+      setRtToken(token);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
   // Per-user notifications: load the recipient's recent alerts and subscribe to
   // realtime inserts so the bell updates live. Re-runs when the signed-in user
   // resolves (initials change from the default to the real profile).
   useEffect(() => {
-    if (!supabaseConfigured) return;
+    if (!supabaseConfigured || !rtToken) return;
     const me = currentUser.initials;
     if (!me) return;
     const client = createClient();
+    client.realtime.setAuth(rtToken);
     let cancelled = false;
     client.from("notifications").select("*").eq("recipient", me).order("created_at", { ascending: false }).limit(50).then(({ data }) => {
       if (data && !cancelled) setNotifications(data as NotificationItem[]);
@@ -305,14 +324,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { cancelled = true; client.removeChannel(ch); };
-  }, [currentUser.initials]);
+  }, [currentUser.initials, rtToken]);
 
   // Live task sync: assignments, status moves and "Платено" made by one user
   // show up in everyone else's open session without a reload (tasks is in the
   // supabase_realtime publication — migration 0019).
   useEffect(() => {
-    if (!supabaseConfigured) return;
+    if (!supabaseConfigured || !rtToken) return;
     const client = createClient();
+    client.realtime.setAuth(rtToken);
     const toTask = (r: TaskRow): Task => { const { client_id, ...rest } = r; return { ...rest, client: client_id }; };
     const ch = client
       .channel("tasks-sync")
@@ -330,7 +350,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { client.removeChannel(ch); };
-  }, []);
+  }, [rtToken]);
+
+  // Live продукция: смяна на етап/изпълнител/дата от един човек се появява
+  // веднага при всички останали (content_items + content_cycles са в
+  // supabase_realtime — миграция 0023). Собствените промени просто се
+  // презаписват със същите данни — безвредно.
+  useEffect(() => {
+    if (!supabaseConfigured || !rtToken) return;
+    const client = createClient();
+    client.realtime.setAuth(rtToken);
+    type ItemRow = Omit<ContentItem, "client"> & { client_id: string };
+    type CycleRow = Omit<ContentCycle, "client"> & { client_id: string };
+    const toItem = (r: ItemRow): ContentItem => { const { client_id, ...rest } = r; return { ...rest, client: client_id }; };
+    const toCycle = (r: CycleRow): ContentCycle => { const { client_id, ...rest } = r; return { ...rest, client: client_id }; };
+    const ch = client
+      .channel("content-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "content_items" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          const c = toItem(payload.new as ItemRow);
+          setContentItems((list) => (list.some((x) => x.id === c.id) ? list : [...list, c]));
+        } else if (payload.eventType === "UPDATE") {
+          const c = toItem(payload.new as ItemRow);
+          setContentItems((list) => list.map((x) => (x.id === c.id ? c : x)));
+        } else if (payload.eventType === "DELETE") {
+          const id = (payload.old as { id?: string })?.id;
+          if (id) setContentItems((list) => list.filter((x) => x.id !== id));
+        }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "content_cycles" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          const c = toCycle(payload.new as CycleRow);
+          setCycles((list) => (list.some((x) => x.id === c.id) ? list : [c, ...list]));
+        } else if (payload.eventType === "UPDATE") {
+          const c = toCycle(payload.new as CycleRow);
+          setCycles((list) => list.map((x) => (x.id === c.id ? c : x)));
+        } else if (payload.eventType === "DELETE") {
+          const id = (payload.old as { id?: string })?.id;
+          if (id) setCycles((list) => list.filter((x) => x.id !== id));
+        }
+      })
+      .subscribe();
+    return () => { client.removeChannel(ch); };
+  }, [rtToken]);
 
   const logActivity = useCallback((action: string) => {
     const item: ActivityItem = {
@@ -579,24 +641,51 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [logActivity]);
 
   // ---- Production → team task board bridge ----
-  // Every production handoff surfaces as a PRIVATE task (assignee + admin, and
-  // managers via canSeeTask): the open task linked to the video is closed and a
-  // fresh one is created for whoever owns the stage it just entered. Pass
+  // Every video keeps ONE live task on the board. Moving the card between
+  // stages RETARGETS that task (title, stage, assignee) instead of piling up
+  // a new task per move. A fresh task is created only when the previous one
+  // was genuinely completed by its worker (justCompletedTaskId) — so his done
+  // history survives — or when the video has no open task yet. Pass
   // toStage=null to only close (final publish).
+  const justCompletedTaskId = useRef<string | null>(null);
   const syncStageTask = useCallback((itemId: string, title: string, clientId: string, toStage: string | null, assignee: string) => {
-    // Derive the ids from the current state, not inside the updater — React may
-    // defer updaters, so side effects there never reach the DB write below.
-    const closedIds = tasks.filter((t) => t.content_item_id === itemId && t.status !== "done").map((t) => t.id);
-    if (closedIds.length) {
-      setTasks((list) => list.map((t) => (closedIds.includes(t.id) ? { ...t, status: "done" as TaskStatus, progress: 100 } : t)));
-      sb()?.from("tasks").update({ status: "done", progress: 100 }).in("id", closedIds).then(({ error }) => {
+    const completedId = justCompletedTaskId.current;
+    justCompletedTaskId.current = null;
+    // Derive from current state, not inside updaters — React may defer those.
+    const open = tasks.filter((t) => t.content_item_id === itemId && t.status !== "done" && t.id !== completedId);
+    const closeIds = (ids: string[]) => {
+      if (!ids.length) return;
+      const doneAt = new Date().toISOString();
+      setTasks((list) => list.map((t) => (ids.includes(t.id) ? { ...t, status: "done" as TaskStatus, progress: 100, done_at: doneAt } : t)));
+      sb()?.from("tasks").update({ status: "done", progress: 100, done_at: doneAt }).in("id", ids).then(({ error }) => {
         if (error) { console.error("[BrandMotion] syncStageTask close failed:", error); notifyError("Затварянето на предишния етап не се запази: " + error.message); }
       });
+    };
+    if (!toStage || !assignee) { closeIds(open.map((t) => t.id)); return; }
+
+    const taskTitle = `Видео „${title || "(без заглавие)"}“ — ${stageMeta(toStage).label}`;
+    if (open.length) {
+      // Reuse the live task; surplus duplicates (from older double-creates)
+      // get swept: paid/valued ones close as done, worthless ones are deleted.
+      const [keep, ...extras] = open;
+      const patch = { title: taskTitle, client_id: clientId, assignee, status: "todo" as TaskStatus, progress: 0, stage_key: toStage };
+      setTasks((list) => list.map((t) => (t.id === keep.id ? { ...t, title: taskTitle, client: clientId, assignee, status: "todo", progress: 0, stage_key: toStage } : t)));
+      sb()?.from("tasks").update(patch).eq("id", keep.id).then(({ error }) => {
+        if (error) { console.error("[BrandMotion] syncStageTask retarget failed:", error); notifyError("Преместването на задачата не се запази: " + error.message); }
+      });
+      const junk = extras.filter((t) => !(t.pay_amount || 0) && !(t.time_logged || 0)).map((t) => t.id);
+      const worth = extras.filter((t) => (t.pay_amount || 0) || (t.time_logged || 0)).map((t) => t.id);
+      if (junk.length) {
+        setTasks((list) => list.filter((t) => !junk.includes(t.id)));
+        sb()?.from("tasks").delete().in("id", junk).then(({ error }) => error && console.error("[BrandMotion] syncStageTask dedupe failed:", error));
+      }
+      closeIds(worth);
+      return;
     }
-    if (!toStage || !assignee) return;
+
     const row = {
       id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      title: `Видео „${title || "(без заглавие)"}“ — ${stageMeta(toStage).label}`,
+      title: taskTitle,
       client_id: clientId,
       status: "todo" as TaskStatus,
       priority: "medium" as const,
@@ -832,8 +921,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...s, status: i < ti ? "done" as StageStatus : i === ti ? "doing" as StageStatus : "todo" as StageStatus };
       });
       const published = isLast ? true : c.published;
-      setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, current_stage: nextKey, stages, published } : x)));
-      persistItem(itemId, { current_stage: nextKey, stages, published });
+      const publishedAt = isLast && !c.published ? new Date().toISOString() : c.published_at ?? null;
+      setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, current_stage: nextKey, stages, published, published_at: publishedAt } : x)));
+      persistItem(itemId, { current_stage: nextKey, stages, published, published_at: publishedAt });
+      // Завършеният етап затваря СВОЯ таск като done (историята на работника
+      // остава), за да не бъде преизползван за следващия етап.
+      const stageTask = tasks.find((t) => t.content_item_id === itemId && t.stage_key === cur && t.status !== "done");
+      if (stageTask) {
+        const doneAt = new Date().toISOString();
+        justCompletedTaskId.current = stageTask.id;
+        setTasks((list) => list.map((t) => (t.id === stageTask.id ? { ...t, status: "done" as TaskStatus, progress: 100, done_at: doneAt } : t)));
+        sb()?.from("tasks").update({ status: "done", progress: 100, done_at: doneAt }).eq("id", stageTask.id).then(({ error }) => error && console.error("[BrandMotion] stage task close failed:", error));
+      }
       const to = isLast ? "" : stages.find((s) => s.key === nextKey)?.assignee || "";
       syncStageTask(itemId, c.title, c.client, isLast ? null : nextKey, to);
       if (!isLast && to) notify(to, `Видео „${c.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(nextKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
@@ -843,7 +942,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const stages = (c.stages || []).map((s) => (s.key === stageKey ? { ...s, status } : s));
     setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, stages } : x)));
     persistItem(itemId, { stages });
-  }, [contentItems, syncStageTask, notify]);
+  }, [contentItems, tasks, syncStageTask, notify]);
 
   // Profile edits go through RLS: without the "profiles admin update" policy
   // (migration 0020) an admin's update of ANOTHER member matches 0 rows and
@@ -880,11 +979,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateContentItem = useCallback((id: string, f: ContentItemForm) => {
     const date = f.date || null;
-    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, published: f.published };
+    const prev = contentItems.find((c) => c.id === id);
+    // Първото минаване през "публикувано" печата published_at — по него бордът
+    // архивира картата след BOARD_RETENTION_DAYS.
+    const publishedAt = f.published ? (prev?.published ? prev.published_at ?? null : new Date().toISOString()) : null;
+    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, published: f.published, published_at: publishedAt };
     setContentItems((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
     setModal(null);
-  }, []);
+  }, [contentItems]);
 
   // SIMULATED connect/disconnect until real OAuth is wired (see /api/oauth).
   const setClientConnection = useCallback((clientId: string, provider: ChannelProvider, connected: boolean) => {
@@ -915,35 +1018,52 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---- Clients ----
+  // Cyrillic names transliterate before slugging — otherwise „Евро Програми“
+  // and every other кирилско име collapse to the same id ("client") and the
+  // second insert dies on the duplicate primary key.
+  const translit = (s: string) => {
+    const map: Record<string, string> = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sht", ъ: "a", ь: "y", ю: "yu", я: "ya" };
+    return s.toLowerCase().replace(/[а-яё]/g, (ch) => map[ch] ?? "");
+  };
   const addClient = useCallback((f: ClientForm) => {
-    const base = f.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client";
+    const base = translit(f.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client-" + (Date.now() % 100000);
     setClients((list) => {
       const id = list.some((c) => c.id === base) ? base + "-" + (Date.now() % 10000) : base;
       const row = { id, name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url };
-      sb()?.from("clients").insert(row).then(({ error }) => error && console.error("[BrandMotion] addClient failed:", error));
+      sb()?.from("clients").insert(row).then(({ error }) => {
+        if (error) {
+          console.error("[BrandMotion] addClient failed:", error.message || error);
+          notifyError(`Клиентът не се запази: ${error.message || "неизвестна грешка"}`);
+          setClients((cur) => cur.filter((c) => c.id !== id));
+        }
+      });
       return [...list, row as Client];
     });
     logActivity(`добави клиент ${f.name}`);
     setModal(null);
-  }, [logActivity]);
+  }, [logActivity, notifyError]);
 
   const updateClient = useCallback((id: string, f: ClientForm) => {
     const patch = { name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url };
     setClients((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    sb()?.from("clients").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateClient failed:", error));
+    sb()?.from("clients").update(patch).eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] updateClient failed:", error.message || error); notifyError(`Промяната по клиента не се запази: ${error.message || "неизвестна грешка"}`); }
+    });
     logActivity(`обнови клиент ${f.name}`);
     setModal(null);
-  }, [logActivity]);
+  }, [logActivity, notifyError]);
 
   const deleteClient = useCallback((id: string) => {
     const name = clients.find((c) => c.id === id)?.name || id;
     setClients((list) => list.filter((c) => c.id !== id));
     setInvoices((list) => list.filter((iv) => iv.client !== id));
     setTasks((list) => list.filter((t) => t.client !== id));
-    sb()?.from("clients").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteClient failed:", error));
+    sb()?.from("clients").delete().eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] deleteClient failed:", error.message || error); notifyError(`Клиентът не се изтри: ${error.message || "неизвестна грешка"}`); }
+    });
     logActivity(`изтри клиент ${name}`);
     setModal(null);
-  }, [clients, logActivity]);
+  }, [clients, logActivity, notifyError]);
 
   // ---- Invoices ----
   const addInvoice = useCallback((f: InvoiceForm) => {
@@ -1019,15 +1139,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [tasks, logActivity]);
 
   // Completing a production task (done column / toggle) closes its stage too —
-  // setStageStatus then auto-advances the video and opens the next worker's task.
+  // setStageStatus then auto-advances the video and opens the next worker's
+  // task. justCompletedTaskId keeps this task out of syncStageTask's "reuse"
+  // path, so the worker's done card survives and the next stage gets a fresh one.
   const completeStageFor = useCallback((t: Task | undefined) => {
-    if (t && t.status !== "done" && t.content_item_id && t.stage_key) setStageStatus(t.content_item_id, t.stage_key, "done");
+    if (t && t.status !== "done" && t.content_item_id && t.stage_key) {
+      justCompletedTaskId.current = t.id;
+      setStageStatus(t.content_item_id, t.stage_key, "done");
+    }
   }, [setStageStatus]);
 
   const moveTask = useCallback((id: string, status: TaskStatus) => {
     const cur = tasks.find((t) => t.id === id);
-    setTasks((list) => list.map((t) => (t.id === id ? { ...t, status } : t)));
-    sb()?.from("tasks").update({ status }).eq("id", id).then(({ error }) => {
+    const patch = status === "done" ? { status, done_at: new Date().toISOString() } : { status, done_at: null };
+    setTasks((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    sb()?.from("tasks").update(patch).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] moveTask failed:", error); notifyError("Смяната на статуса не се запази: " + error.message); }
     });
     if (status === "done") completeStageFor(cur);
@@ -1039,8 +1165,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const cur = tasks.find((t) => t.id === id);
     if (!cur) return;
     const next = cur.status === "done"
-      ? { status: "todo" as TaskStatus, progress: Math.min(cur.progress, 90) }
-      : { status: "done" as TaskStatus, progress: 100 };
+      ? { status: "todo" as TaskStatus, progress: Math.min(cur.progress, 90), done_at: null }
+      : { status: "done" as TaskStatus, progress: 100, done_at: new Date().toISOString() };
     setTasks((list) => list.map((t) => (t.id === id ? { ...t, ...next } : t)));
     sb()?.from("tasks").update(next).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] toggleDone failed:", error); notifyError("Смяната на статуса не се запази: " + error.message); }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "./Icon";
 import { useStore } from "./store";
-import { fmtK, canAccess } from "@/lib/data";
+import { fmtK, canAccess, memberTitle } from "@/lib/data";
 
 const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Табло", icon: "dashboard" },
@@ -22,8 +22,10 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
-  const { invoices, currentUser, signOut } = useStore();
+  const { invoices, currentUser, signOut, team } = useStore();
   const collected = invoices.filter((i) => i.status === "paid").reduce((a, b) => a + b.amount, 0);
+  const me = team.find((m) => m.initials === currentUser.initials);
+  const myTitle = me ? memberTitle(me) : currentUser.role;
 
   return (
     <aside className={"bm-sidebar" + (open ? " bm-sidebar--open" : "")}>
@@ -98,7 +100,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
           <span className="bm-avatar">{currentUser.initials}</span>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser.name}</div>
-            <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{currentUser.role}</div>
+            <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{myTitle}</div>
           </div>
           <button className="bm-btn bm-btn--ghost bm-btn--icon" onClick={signOut} aria-label="Изход" title="Изход">
             <Icon name="back" size={16} />

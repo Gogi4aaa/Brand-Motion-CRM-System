@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { ContentCalendar } from "@/components/ContentCalendar";
-import { clientsById, contentTypeMeta, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
+import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
   const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal, visibleClients } = useStore();
@@ -13,9 +13,12 @@ export default function ProductionPage() {
   const allowedIds = new Set(visibleClients.map((c) => c.id));
   const [clientFilter, setClientFilter] = useState("all");
   const [mine, setMine] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
 
-  const visible = contentItems.filter((c) => {
+  // Публикуваното отпреди BOARD_RETENTION_DAYS дни се архивира от борда —
+  // видеата остават в базата (клиентският портал и пакетът ги ползват).
+  const inScope = contentItems.filter((c) => {
     if (!allowedIds.has(c.client)) return false;
     if (clientFilter !== "all" && c.client !== clientFilter) return false;
     if (mine) {
@@ -24,6 +27,8 @@ export default function ProductionPage() {
     }
     return true;
   });
+  const archivedCount = inScope.filter((c) => c.published && isArchived(c.published_at)).length;
+  const visible = showArchive ? inScope : inScope.filter((c) => !(c.published && isArchived(c.published_at)));
 
   const colItems = (stageKey: string) => visible.filter((c) => (c.current_stage || "strategy") === stageKey);
 
@@ -36,6 +41,9 @@ export default function ProductionPage() {
         </div>
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
           <label className="bm-checkbox"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Моята работа</label>
+          <label className="bm-checkbox" title={`Публикуваните преди повече от ${BOARD_RETENTION_DAYS} дни се прибират от борда, но остават в клиентския портал`}>
+            <input type="checkbox" checked={showArchive} onChange={(e) => setShowArchive(e.target.checked)} /> Архив{archivedCount > 0 ? ` (${archivedCount})` : ""}
+          </label>
           {canImport && (
             <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "importScripts" })}>Импортирай сценарии</button>
           )}

@@ -62,7 +62,15 @@ export interface Task {
   content_item_id?: string | null; // set on tasks auto-created from production
   stage_key?: string | null; // which production stage spawned this task
   created_at?: string; // set by the DB; drives the dashboard period filter
+  done_at?: string | null; // when it was completed — drives the board archive
 }
+
+// Бордовете крият done/публикувано след този брой дни (данните остават —
+// порталът, плащанията и справките ги ползват); pg_cron изтрива само
+// безстойностните авто-таскове (0024_archive_cleanup.sql).
+export const BOARD_RETENTION_DAYS = 7;
+export const isArchived = (iso?: string | null) =>
+  !!iso && Date.now() - new Date(iso).getTime() > BOARD_RETENTION_DAYS * 86400_000;
 
 // Резултати от качено видео — въвеждани ръчно или дърпани автоматично.
 export interface VideoMetric {
@@ -205,13 +213,26 @@ export interface StageState {
   status: StageStatus;
 }
 
+// Специалностите се показват като длъжност на човека (вж. memberTitle) —
+// затова са съществителни: Монтажист, Видеограф…, а не имена на етапи.
 export const PRODUCTION_ROLES: { id: string; label: string }[] = [
-  { id: "strategy", label: "Стратегия" },
-  { id: "script", label: "Сценарий" },
-  { id: "camera", label: "Оператор" },
+  { id: "strategy", label: "Стратег" },
+  { id: "script", label: "Сценарист" },
+  { id: "camera", label: "Видеограф" },
   { id: "editor", label: "Монтажист" },
-  { id: "review", label: "Преглед" },
+  { id: "review", label: "Публикуващ" },
 ];
+
+// Длъжността, която се показва до името на човек от екипа: избраните
+// специалности („Монтажист · Видеограф“); без специалности — нивото на
+// достъп („Сътрудник“/„Мениджър“). Админът винаги е „Администратор“.
+export const memberTitle = (m: Pick<TeamMember, "role" | "roles">): string => {
+  if (m.role === "admin") return ROLE_LABELS.admin;
+  const parts = (m.roles || [])
+    .map((r) => PRODUCTION_ROLES.find((p) => p.id === r)?.label)
+    .filter((x): x is string => !!x);
+  return parts.length ? parts.join(" · ") : ROLE_LABELS[m.role];
+};
 
 export const PRODUCTION_STAGES: { key: string; label: string; role: string; dot: string }[] = [
   { key: "strategy", label: "Идеи и стратегия", role: "strategy", dot: "var(--bm-info-500)" },
@@ -432,6 +453,7 @@ export interface ContentItem {
   cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
   notion_url: string;
   published?: boolean;
+  published_at?: string | null; // кога е публикувано — бордът архивира по него
   current_stage?: string;
   stages?: StageState[];
 }
