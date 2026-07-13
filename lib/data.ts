@@ -174,7 +174,8 @@ export const ROLE_LABELS: Record<AccessRole, string> = {
 //   worker  — only their own work (tasks/content/production).
 export const NAV_ACCESS: Record<string, AccessRole[]> = {
   dashboard: ["admin", "manager", "worker"],
-  ideas: ["admin", "manager", "worker"],
+  ideas: ["admin"], // в разработка — само админът я вижда засега
+
   tasks: ["admin", "manager", "worker"],
   calendar: ["admin", "manager", "worker"],
   production: ["admin", "manager", "worker"],
