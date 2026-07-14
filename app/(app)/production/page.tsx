@@ -6,8 +6,13 @@ import { ContentCalendar } from "@/components/ContentCalendar";
 import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
-  const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal, visibleClients } = useStore();
-  const canImport = currentUser.level === "admin" || currentUser.level === "manager";
+  const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal, visibleClients, team } = useStore();
+  // Импортът на сценарии е и за стратезите/сценаристите — тяхната работа е
+  // да вкарват готовите текстове, без това да им дава екипни права. Циклите
+  // обаче са координация и остават за admin/manager.
+  const myRoles = team.find((m) => m.initials === currentUser.initials)?.roles || [];
+  const canManageCycles = currentUser.level === "admin" || currentUser.level === "manager";
+  const canImport = canManageCycles || myRoles.includes("strategy") || myRoles.includes("script");
   const activeCycles = cycles.filter((c) => c.phase !== "published");
   const byId = clientsById(clients);
   const allowedIds = new Set(visibleClients.map((c) => c.id));
@@ -54,7 +59,7 @@ export default function ProductionPage() {
         </div>
       </div>
 
-      {canImport && (
+      {canManageCycles && (
         <div className="bm-card">
           <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)" }}>
