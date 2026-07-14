@@ -101,7 +101,13 @@ export default function ProductionPage() {
               key={col.key}
               className="bm-kcol"
               onDragOver={(e) => e.preventDefault()}
-              onDrop={() => { if (dragId) { advanceStage(dragId, col.key); setDragId(null); } }}
+              onDrop={() => {
+                if (!dragId) return;
+                // Пускане в СЪЩАТА колона е no-op — без излишен retarget на таска.
+                const it = contentItems.find((c) => c.id === dragId);
+                if (it && (it.current_stage || "strategy") !== col.key) advanceStage(dragId, col.key);
+                setDragId(null);
+              }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>

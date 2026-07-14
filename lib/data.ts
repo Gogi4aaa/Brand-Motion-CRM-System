@@ -235,6 +235,11 @@ export const memberTitle = (m: Pick<TeamMember, "role" | "roles">): string => {
   return parts.length ? parts.join(" · ") : ROLE_LABELS[m.role];
 };
 
+// Дефолтно възнаграждение на автоматичния таск по етап (EUR). Монтажът се
+// плаща на парче — €15; останалите етапи тръгват без сума. Ръчно въведена
+// сума никога не се презаписва от дефолта.
+export const STAGE_DEFAULT_PAY: Record<string, number> = { edit: 15 };
+
 export const PRODUCTION_STAGES: { key: string; label: string; role: string; dot: string }[] = [
   { key: "strategy", label: "Идеи и стратегия", role: "strategy", dot: "var(--bm-info-500)" },
   { key: "script", label: "Сценарии", role: "script", dot: "var(--bm-brand-400)" },
@@ -459,6 +464,7 @@ export interface ContentItem {
   hashtags?: string; // space-separated hashtags
   cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
   notion_url: string;
+  footage_url?: string; // линк към суровия материал (Drive папка от снимачния ден)
   published?: boolean;
   published_at?: string | null; // кога е публикувано — бордът архивира по него
   current_stage?: string;

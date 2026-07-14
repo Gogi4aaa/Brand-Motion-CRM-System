@@ -14,6 +14,7 @@ import {
   seedContentItems,
   defaultStages,
   PRODUCTION_STAGES,
+  STAGE_DEFAULT_PAY,
   stageMeta,
   ROLE_LABELS,
   ONBOARDING_TASKS,
@@ -117,7 +118,7 @@ interface Store {
   addContentItem: (clientId: string, f: ContentItemForm) => void;
   updateContentItem: (id: string, f: ContentItemForm) => void;
   deleteContentItem: (id: string) => void;
-  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string) => void;
+  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string, footageUrl?: string) => void;
   addIdea: (f: IdeaForm) => void;
   updateIdea: (id: string, f: IdeaForm) => void;
   deleteIdea: (id: string) => void;
@@ -671,8 +672,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Reuse the live task; surplus duplicates (from older double-creates)
       // get swept: paid/valued ones close as done, worthless ones are deleted.
       const [keep, ...extras] = open;
-      const patch = { title: taskTitle, client_id: clientId, assignee, status: "todo" as TaskStatus, progress: 0, stage_key: toStage };
-      setTasks((list) => list.map((t) => (t.id === keep.id ? { ...t, title: taskTitle, client: clientId, assignee, status: "todo", progress: 0, stage_key: toStage } : t)));
+      // Дефолтна сума по етап (напр. монтаж €15): прилага се само ако текущата
+      // сума не е пипана ръчно (0 или дефолта на предишния етап).
+      const untouched = (keep.pay_amount || 0) === 0 || keep.pay_amount === (STAGE_DEFAULT_PAY[keep.stage_key || ""] || 0);
+      const pay = untouched ? (STAGE_DEFAULT_PAY[toStage] || 0) : (keep.pay_amount || 0);
+      const patch = { title: taskTitle, client_id: clientId, assignee, status: "todo" as TaskStatus, progress: 0, stage_key: toStage, pay_amount: pay };
+      setTasks((list) => list.map((t) => (t.id === keep.id ? { ...t, title: taskTitle, client: clientId, assignee, status: "todo", progress: 0, stage_key: toStage, pay_amount: pay } : t)));
       sb()?.from("tasks").update(patch).eq("id", keep.id).then(({ error }) => {
         if (error) { console.error("[BrandMotion] syncStageTask retarget failed:", error); notifyError("Преместването на задачата не се запази: " + error.message); }
       });
@@ -696,7 +701,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       due: "Според етапа",
       progress: 0,
       estimate_hours: 0,
-      pay_amount: 0,
+      pay_amount: STAGE_DEFAULT_PAY[toStage] || 0,
       visibility: "private" as const,
       content_item_id: itemId,
       stage_key: toStage,
@@ -713,7 +718,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const client = clients.find((c) => c.id === clientId);
     const stages = defaultStages(team, client?.editor || "", currentUser.initials);
     const date = f.date || null;
-    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, published: f.published, current_stage: "strategy", stages };
+    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", published: f.published, current_stage: "strategy", stages };
     const { client_id: newClient, ...restRow } = row;
     setContentItems((list) => [...list, { ...restRow, client: newClient }]);
     sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] addContentItem failed:", error));
@@ -726,7 +731,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // `startStage` with the prior stages pre-marked done (strategy + script were
   // written in the doc). Reuses defaultStages so the camera/editor owners are
   // auto-assigned — i.e. the work is distributed to the team on confirm.
-  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string) => {
+  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string, footageUrl?: string) => {
     if (!videos.length) return;
     const client = clients.find((c) => c.id === clientId);
     const order = PRODUCTION_STAGES.map((s) => s.key);
@@ -737,7 +742,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const idx = order.indexOf(s.key);
         return { ...s, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
       });
-      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, cycle_id: cycleId || null, notion_url: "", published: false, current_stage: order[ti], stages };
+      // Линкът към суровия материал важи за цялата партида от този импорт.
+      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
@@ -995,7 +1001,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Първото минаване през "публикувано" печата published_at — по него бордът
     // архивира картата след BOARD_RETENTION_DAYS.
     const publishedAt = f.published ? (prev?.published ? prev.published_at ?? null : new Date().toISOString()) : null;
-    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, published: f.published, published_at: publishedAt };
+    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", published: f.published, published_at: publishedAt };
     setContentItems((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
     setModal(null);

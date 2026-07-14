@@ -531,8 +531,8 @@ function ContentModal() {
   const { register, handleSubmit, getValues, setValue, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
-      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, published: editing.published ?? false }
-      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", published: false },
+      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", published: editing.published ?? false }
+      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", published: false },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
 
@@ -637,6 +637,13 @@ function ContentModal() {
             <div className="bm-field"><label className="bm-label">Caption</label><textarea className="bm-textarea" {...register("caption")} placeholder="Описанието на публикацията — кука в първия ред…" /></div>
             <div className="bm-field"><label className="bm-label">Хаштагове</label><input className="bm-input" {...register("hashtags")} placeholder="#бранд #ниша #широк" /></div>
             <div className="bm-field"><label className="bm-label">Notion линк (по избор)</label><input className="bm-input" {...register("notion_url")} placeholder="https://notion.so/…" /></div>
+            <div className="bm-field">
+              <label className="bm-label">Суров материал (линк)</label>
+              <input className="bm-input" {...register("footage_url")} placeholder="https://drive.google.com/…" />
+              {(live?.footage_url || editing?.footage_url) && (
+                <a href={live?.footage_url || editing?.footage_url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600, marginTop: 4 }}>Отвори суровия материал ↗</a>
+              )}
+            </div>
             <label className="bm-checkbox"><input type="checkbox" {...register("published")} /> Публикувано</label>
           </div>
 
@@ -744,6 +751,7 @@ function ScriptImportModal() {
   const [type, setType] = useState<ContentType>("reel");
   const [startStage, setStartStage] = useState("shoot");
   const [file, setFile] = useState<File | null>(null);
+  const [footageUrl, setFootageUrl] = useState("");
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -770,7 +778,7 @@ function ScriptImportModal() {
   const openCycle = cycles.find((c) => c.client === clientId && c.phase !== "published");
   const create = () => {
     if (!clientId || kept.length === 0) return;
-    importScripts(clientId, type, startStage, kept.map((r) => ({ title: r.title.trim(), script: r.script })), openCycle?.id);
+    importScripts(clientId, type, startStage, kept.map((r) => ({ title: r.title.trim(), script: r.script })), openCycle?.id, footageUrl);
   };
 
   return (
@@ -785,6 +793,11 @@ function ScriptImportModal() {
             </div>
             <div className="bm-field"><label className="bm-label">Започни от етап</label><select className="bm-select" value={startStage} onChange={(e) => setStartStage(e.target.value)}>{PRODUCTION_STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Файл (.docx)</label><input className="bm-input" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
+            <div className="bm-field">
+              <label className="bm-label">Линк към суровия материал (по избор)</label>
+              <input className="bm-input" value={footageUrl} onChange={(e) => setFootageUrl(e.target.value)} placeholder="https://drive.google.com/…" />
+              <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Записва се на всички видеа от този импорт — монтажистът го отваря от модала на видеото.</span>
+            </div>
             <Err msg={error} />
           </>
         ) : (
