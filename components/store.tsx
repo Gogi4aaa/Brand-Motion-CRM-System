@@ -118,7 +118,7 @@ interface Store {
   addContentItem: (clientId: string, f: ContentItemForm) => void;
   updateContentItem: (id: string, f: ContentItemForm) => void;
   deleteContentItem: (id: string) => void;
-  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string, footageUrl?: string) => void;
+  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>) => void;
   addIdea: (f: IdeaForm) => void;
   updateIdea: (id: string, f: IdeaForm) => void;
   deleteIdea: (id: string) => void;
@@ -133,6 +133,7 @@ interface Store {
   scheduleContent: (id: string, date: string | null) => void;
   setClientConnection: (clientId: string, provider: ChannelProvider, connected: boolean) => void;
   advanceStage: (itemId: string, toStage: string) => void;
+  completeVideo: (itemId: string) => void;
   setStageAssignee: (itemId: string, stageKey: string, assignee: string) => void;
   setStageStatus: (itemId: string, stageKey: string, status: StageStatus) => void;
   updateMemberRoles: (memberId: string, roles: string[]) => void;
@@ -731,7 +732,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // `startStage` with the prior stages pre-marked done (strategy + script were
   // written in the doc). Reuses defaultStages so the camera/editor owners are
   // auto-assigned — i.e. the work is distributed to the team on confirm.
-  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string }[], cycleId?: string, footageUrl?: string) => {
+  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>) => {
     if (!videos.length) return;
     const client = clients.find((c) => c.id === clientId);
     const order = PRODUCTION_STAGES.map((s) => s.key);
@@ -740,10 +741,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const rows = videos.map((v, i) => {
       const stages = defaultStages(team, client?.editor || "", currentUser.initials).map((s) => {
         const idx = order.indexOf(s.key);
-        return { ...s, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
+        // Ръчно избраните от админа изпълнители при импорта бият дефолтите.
+        return { ...s, assignee: stageAssignees?.[s.key] || s.assignee, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
       });
       // Линкът към суровия материал важи за цялата партида от този импорт.
-      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
+      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, hook: v.hook || "", cta: v.cta || "", cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
@@ -899,6 +901,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     syncStageTask(itemId, item.title, item.client, toStage, owner || "");
     if (owner) notify(owner, `Видео „${item.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(toStage).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
   }, [contentItems, team, currentUser.initials, syncStageTask, notify]);
+
+  // Влачене в колоната „Приключени“: маркира видеото публикувано и затваря
+  // отворените му таскове (без нов етап). Гейтва се от UI-то (canPublish).
+  const completeVideo = useCallback((itemId: string) => {
+    const item = contentItems.find((c) => c.id === itemId);
+    if (!item || item.published) return;
+    const publishedAt = new Date().toISOString();
+    setContentItems((list) => list.map((c) => (c.id === itemId ? { ...c, published: true, published_at: publishedAt, current_stage: "publish" } : c)));
+    persistItem(itemId, { published: true, published_at: publishedAt, current_stage: "publish" });
+    syncStageTask(itemId, item.title, item.client, null, "");
+    logActivity(`приключи видео „${item.title || itemId}“`);
+  }, [contentItems, syncStageTask, logActivity]);
 
   const setStageAssignee = useCallback((itemId: string, stageKey: string, assignee: string) => {
     const item = contentItems.find((c) => c.id === itemId);
@@ -1216,7 +1230,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
-    advanceStage, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, visibleClients,
+    advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,

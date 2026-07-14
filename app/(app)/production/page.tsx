@@ -6,13 +6,15 @@ import { ContentCalendar } from "@/components/ContentCalendar";
 import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
-  const { contentItems, clients, cycles, currentUser, advanceStage, advanceCycle, openModal, visibleClients, team } = useStore();
+  const { contentItems, clients, cycles, currentUser, advanceStage, completeVideo, advanceCycle, openModal, visibleClients, team } = useStore();
   // Импортът на сценарии е и за стратезите/сценаристите — тяхната работа е
   // да вкарват готовите текстове, без това да им дава екипни права. Циклите
   // обаче са координация и остават за admin/manager.
   const myRoles = team.find((m) => m.initials === currentUser.initials)?.roles || [];
   const canManageCycles = currentUser.level === "admin" || currentUser.level === "manager";
   const canImport = canManageCycles || myRoles.includes("strategy") || myRoles.includes("script");
+  // „Приключени“ приема drop само от Публикуващия кръг.
+  const canPublish = canManageCycles || myRoles.includes("review");
   const activeCycles = cycles.filter((c) => c.phase !== "published");
   const byId = clientsById(clients);
   const allowedIds = new Set(visibleClients.map((c) => c.id));
@@ -35,7 +37,10 @@ export default function ProductionPage() {
   const archivedCount = inScope.filter((c) => c.published && isArchived(c.published_at)).length;
   const visible = showArchive ? inScope : inScope.filter((c) => !(c.published && isArchived(c.published_at)));
 
-  const colItems = (stageKey: string) => visible.filter((c) => (c.current_stage || "strategy") === stageKey);
+  const colItems = (stageKey: string) => visible.filter((c) => !c.published && (c.current_stage || "strategy") === stageKey);
+  // Публикуваните (ръчно, през етапите или от нощния job при минала дата)
+  // живеят в отделната колона „Приключени“.
+  const completed = visible.filter((c) => c.published);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
@@ -98,7 +103,7 @@ export default function ProductionPage() {
         </div>
       )}
 
-      <div className="bm-board bm-board--6">
+      <div className="bm-board bm-board--7">
         {PRODUCTION_STAGES.map((col) => {
           const items = colItems(col.key);
           return (
@@ -155,6 +160,46 @@ export default function ProductionPage() {
             </div>
           );
         })}
+
+        {/* Приключени: публикувани ръчно, през етапите или от нощния job при
+            минала дата. Drop тук маркира видеото публикувано (само canPublish). */}
+        <div
+          className="bm-kcol"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={() => {
+            if (dragId && canPublish) completeVideo(dragId);
+            setDragId(null);
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--bm-success-600)", flexShrink: 0 }} />
+              <span title="Приключени" style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Приключени</span>
+            </div>
+            <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{completed.length}</span>
+          </div>
+          <div className="bm-noscrollbar bm-kcol__list">
+            {completed.map((it) => {
+              const ct = contentTypeMeta(it.type);
+              return (
+                <div
+                  key={it.id}
+                  onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
+                  style={{ background: "var(--bm-success-50)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer" }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>✓ {it.title || "(без заглавие)"}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
+                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {completed.length === 0 && (
+              <div style={{ border: "1px dashed var(--bm-border-strong)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", textAlign: "center", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>—</div>
+            )}
+          </div>
+        </div>
       </div>
 
       {contentItems.length === 0 && (

@@ -66,7 +66,37 @@ export default function InvoicesPage() {
             ))}
           </div>
         </div>
-        <div className="bm-table-wrap" style={{ border: "none", borderRadius: 0 }}>
+        {/* Телефон: картов списък вместо широката таблица */}
+        <div className="bm-show-mobile" style={{ padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+          {filtered.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма фактури в тази категория.</p>}
+          {filtered.map((iv) => {
+            const m = invStatusMeta(iv.status);
+            const c = byId[iv.client];
+            const canPay = iv.status !== "paid" && iv.status !== "draft";
+            return (
+              <div key={iv.id} style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c?.name || iv.client}</span>
+                  <span className={"bm-badge " + m.cls}>{m.label}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", fontFamily: "var(--bm-font-mono)" }}>{iv.id} · {iv.issued}{iv.due ? ` → ${iv.due}` : ""}</span>
+                  <span style={{ fontWeight: 700 }}>{fmtFull(iv.amount)}</span>
+                </div>
+                <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
+                  {canPay && <button className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => markPaid(iv.id)}>Платена</button>}
+                  {iv.status === "paid" && <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-success-600)", fontWeight: 600, alignSelf: "center" }}>✓ Уредена</span>}
+                  <button className="bm-btn bm-btn--ghost bm-btn--sm" onClick={() => openModal({ kind: "invoice", mode: "edit", invoice: iv })}>Редакция</button>
+                  {currentUser.isAdmin && (
+                    <button className="bm-btn bm-btn--ghost bm-btn--sm" onClick={() => openModal({ kind: "confirm", title: "Изтриване на фактура?", message: `Изтрий ${iv.id}? Действието е необратимо.`, confirmLabel: "Изтрий", onConfirm: () => deleteInvoice(iv.id) })}>Изтрий</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="bm-table-wrap bm-hide-mobile" style={{ border: "none", borderRadius: 0 }}>
           <table className="bm-table">
             <thead><tr><th>Фактура</th><th>Клиент</th><th>Статус</th><th className="bm-table__num">Сума</th><th>Издадена</th><th>Падеж</th><th /></tr></thead>
             <tbody>

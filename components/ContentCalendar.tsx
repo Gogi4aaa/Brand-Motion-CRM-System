@@ -20,7 +20,11 @@ const iso = (y: number, m: number, d: number) =>
 // общата си селекция и скриваме вътрешния селект); "all" показва видеата на
 // всички достъпни клиенти заедно, с инициалите на клиента върху всяко видео.
 export function ContentCalendar({ initialClientId, clientId: controlledClient, onClientChange }: { initialClientId?: string; clientId?: string; onClientChange?: (id: string) => void }) {
-  const { contentItems, openModal, scheduleContent, visibleClients, clients } = useStore();
+  const { contentItems, openModal, scheduleContent, visibleClients, clients, currentUser, team } = useStore();
+  // Насрочването/местенето по дати е само за админ, мениджър и хората с роля
+  // „Публикуващ“ — монтажист/сценарист само гледа кога какво излиза.
+  const canSchedule = currentUser.isAdmin || currentUser.level === "manager" ||
+    (team.find((m) => m.initials === currentUser.initials)?.roles || []).includes("review");
   const [dragId, setDragId] = useState<string | null>(null);
   const initialClient = initialClientId && visibleClients.some((c) => c.id === initialClientId) ? initialClientId : "all";
   const [internalClient, setInternalClient] = useState(initialClient);
@@ -61,7 +65,7 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
     .map((c) => ({ ...c, items: itemsFor(c.date) }))
     .filter((c) => c.items.length > 0);
 
-  const onDropDay = (date: string | null) => { if (dragId) { scheduleContent(dragId, date); setDragId(null); } };
+  const onDropDay = (date: string | null) => { if (dragId && canSchedule) { scheduleContent(dragId, date); setDragId(null); } };
 
   const go = (delta: number) => {
     const m = view.m + delta;
@@ -116,7 +120,7 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
               title={createClientId ? "" : "Избери конкретен клиент от филтъра, за да добавяш видеа"}
               onClick={() => createClientId && openModal({ kind: "content", mode: "create", clientId: createClientId, date: "" })}
             ><Icon name="plus" size={16} /> Ново видео</button>
-            <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>{allMode ? "Общ изглед на всички клиенти — избери конкретен клиент, за да добавяш нови видеа." : "Завлачи видео върху ден от календара, за да го насрочиш."}</p>
+            <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>{!canSchedule ? "Само админ, мениджър или „Публикуващ“ насрочват видеата по дати." : allMode ? "Общ изглед на всички клиенти — избери конкретен клиент, за да добавяш нови видеа." : "Завлачи видео върху ден от календара, за да го насрочиш."}</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, overflowY: "auto" }}>
               {backlog.length === 0 && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Няма непланирани видеа.</span>}
               {backlog.map((it) => {
@@ -124,8 +128,8 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
                 return (
                   <div
                     key={it.id}
-                    draggable
-                    onDragStart={() => setDragId(it.id)}
+                    draggable={canSchedule}
+                    onDragStart={canSchedule ? () => setDragId(it.id) : undefined}
                     onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
                     title={allMode ? `${byId[it.client]?.name || ""} — ${it.title}` : it.title}
                     style={{ cursor: "grab", borderLeft: `3px solid ${m.fg}`, background: m.bg, color: m.fg, borderRadius: "var(--bm-radius-sm)", padding: "6px 8px", fontSize: "var(--bm-text-xs)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -170,8 +174,8 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
                         <div
                           key={it.id}
                           className="cc-ev"
-                          draggable
-                          onDragStart={(e) => { e.stopPropagation(); setDragId(it.id); }}
+                          draggable={canSchedule}
+                          onDragStart={canSchedule ? (e) => { e.stopPropagation(); setDragId(it.id); } : undefined}
                           onClick={(e) => { e.stopPropagation(); openModal({ kind: "content", mode: "edit", item: it }); }}
                           style={{ textAlign: "left", borderRadius: "var(--bm-radius-sm)", padding: "3px 6px", background: m.bg, color: m.fg, fontSize: "var(--bm-text-xs)", fontWeight: 600, cursor: "grab", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           title={allMode ? `${byId[it.client]?.name || ""} — ${it.title}` : it.title}

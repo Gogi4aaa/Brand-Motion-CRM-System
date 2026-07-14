@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Icon } from "./Icon";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
+import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -524,6 +524,9 @@ function ContentModal() {
   const stages = live?.stages || [];
   // Admins AND managers distribute the production work (кой какво прави).
   const canAssignStages = currentUser.isAdmin || currentUser.level === "manager";
+  // Датите и „Публикувано“ са само за Публикуващия кръг — иначе полето Дата
+  // е заден вход към насрочване покрай заключения календар.
+  const canPublish = canAssignStages || (team.find((m) => m.initials === currentUser.initials)?.roles || []).includes("review");
   const assigneeOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
   const createCtx = modal?.kind === "content" && modal.mode === "create" ? modal : null;
   const clientId = editing ? (live?.client ?? "") : (createCtx?.clientId ?? "");
@@ -597,7 +600,7 @@ function ContentModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           {aiError && <div className="bm-alert bm-alert--danger">{aiError}</div>}
           <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Дата</label><input className="bm-input" type="date" {...register("date")} /><Err msg={errors.date?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Дата</label><input className="bm-input" type="date" disabled={!canPublish} title={canPublish ? "" : "Датите се насрочват от админ, мениджър или Публикуващ"} {...register("date")} /><Err msg={errors.date?.message} /></div>
             <div className="bm-field"><label className="bm-label">Тип</label><select className="bm-select" {...register("type")}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
           </div>
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. промо продукт" /><Err msg={errors.title?.message} /></div>
@@ -644,7 +647,7 @@ function ContentModal() {
                 <a href={live?.footage_url || editing?.footage_url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600, marginTop: 4 }}>Отвори суровия материал ↗</a>
               )}
             </div>
-            <label className="bm-checkbox"><input type="checkbox" {...register("published")} /> Публикувано</label>
+            <label className="bm-checkbox" title={canPublish ? "" : "Отбелязва се от админ, мениджър или Публикуващ"}><input type="checkbox" disabled={!canPublish} {...register("published")} /> Публикувано</label>
           </div>
 
           {editing && (
@@ -742,10 +745,10 @@ function ContentModal() {
   );
 }
 
-interface ImportRow { title: string; script: string; include: boolean }
+interface ImportRow { title: string; script: string; hook?: string; cta?: string; include: boolean }
 
 function ScriptImportModal() {
-  const { closeModal, visibleClients: clients, importScripts, cycles } = useStore();
+  const { closeModal, visibleClients: clients, importScripts, cycles, currentUser, team } = useStore();
   const [step, setStep] = useState<"upload" | "preview">("upload");
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
   const [type, setType] = useState<ContentType>("reel");
@@ -753,6 +756,8 @@ function ScriptImportModal() {
   const [file, setFile] = useState<File | null>(null);
   const [footageUrl, setFootageUrl] = useState("");
   const [rows, setRows] = useState<ImportRow[]>([]);
+  // Админът разпределя КОЙ какво прави за цялата партида още при импорта.
+  const [stageAssign, setStageAssign] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -765,7 +770,9 @@ function ScriptImportModal() {
       const res = await fetch("/api/import/scripts", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Грешка при анализа."); return; }
-      setRows((data.videos as { title: string; script: string }[]).map((v) => ({ ...v, include: true })));
+      setRows((data.videos as { title: string; script: string; hook?: string; cta?: string }[]).map((v) => ({ ...v, include: true })));
+      const cl = clients.find((c) => c.id === clientId);
+      setStageAssign(Object.fromEntries(defaultStages(team, cl?.editor || "", currentUser.initials).map((st) => [st.key, st.assignee])));
       setStep("preview");
     } catch {
       setError("Файлът не можа да бъде качен.");
@@ -778,7 +785,7 @@ function ScriptImportModal() {
   const openCycle = cycles.find((c) => c.client === clientId && c.phase !== "published");
   const create = () => {
     if (!clientId || kept.length === 0) return;
-    importScripts(clientId, type, startStage, kept.map((r) => ({ title: r.title.trim(), script: r.script })), openCycle?.id, footageUrl);
+    importScripts(clientId, type, startStage, kept.map((r) => ({ title: r.title.trim(), script: r.script, hook: r.hook, cta: r.cta })), openCycle?.id, footageUrl, currentUser.isAdmin ? stageAssign : undefined);
   };
 
   return (
@@ -803,6 +810,26 @@ function ScriptImportModal() {
         ) : (
           <>
             <div className="bm-text-muted" style={{ fontSize: "var(--bm-text-sm)" }}>Намерени {rows.length} видеа. Махни отметката на тези, които не искаш да създаваш.</div>
+            {currentUser.isAdmin && (
+              <div style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+                <div className="bm-label">Кой какво прави за тези видеа</div>
+                {PRODUCTION_STAGES.map((st) => (
+                  <div key={st.key} className="bm-stage-row">
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--bm-text-sm)" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} />{st.label}</span>
+                    <select
+                      className="bm-select"
+                      style={{ minHeight: 32, fontSize: "var(--bm-text-xs)", gridColumn: "2 / -1" }}
+                      value={stageAssign[st.key] || ""}
+                      onChange={(e) => setStageAssign((cur) => ({ ...cur, [st.key]: e.target.value }))}
+                    >
+                      <option value="">—</option>
+                      {team.map((m) => <option key={m.id} value={m.initials}>{m.initials} — {m.name}</option>)}
+                    </select>
+                  </div>
+                ))}
+                <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Важи за всички видеа от импорта; после може да се променя на всяко видео поотделно.</span>
+              </div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", maxHeight: 360, overflowY: "auto" }}>
               {rows.map((r, i) => (
                 <div key={i} style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", opacity: r.include ? 1 : 0.5 }}>
@@ -810,6 +837,7 @@ function ScriptImportModal() {
                     <input type="checkbox" checked={r.include} onChange={(e) => setRows((list) => list.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)))} />
                     <input className="bm-input" style={{ fontWeight: 600 }} value={r.title} onChange={(e) => setRows((list) => list.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} />
                   </div>
+                  {r.hook && <div style={{ fontSize: "var(--bm-text-xs)", fontWeight: 600 }}>Кука: {r.hook.slice(0, 140)}{r.hook.length > 140 ? "…" : ""}</div>}
                   <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", whiteSpace: "pre-wrap", maxHeight: 64, overflow: "hidden" }}>{r.script.slice(0, 280) || "(празен сценарий)"}{r.script.length > 280 ? "…" : ""}</div>
                 </div>
               ))}

@@ -99,11 +99,12 @@ a {
 /* Production: 6 stages fill the width on laptops instead of forcing a
    sideways scroll; mid-size screens swipe fixed-width columns. */
 .bm-board--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: stretch; }
+.bm-board--7 { grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: stretch; }
 @media (max-width: 1200px) {
-  .bm-board--6 { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 230px; overflow-x: auto; padding-bottom: var(--bm-space-2); }
+  .bm-board--6, .bm-board--7 { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 230px; overflow-x: auto; padding-bottom: var(--bm-space-2); }
 }
 @media (max-width: 768px) {
-  .bm-board, .bm-board--6 { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 80%; overflow-x: auto; padding-bottom: var(--bm-space-2); }
+  .bm-board, .bm-board--6, .bm-board--7 { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 80%; overflow-x: auto; padding-bottom: var(--bm-space-2); }
 }
 
 /* Kanban column: card list scrolls inside the capped column on desktop; on
@@ -180,6 +181,25 @@ a {
    .bm-table-wrap instead of wrapping into tall broken cells. */
 @media (max-width: 768px) {
   .bm-table th, .bm-table td { white-space: nowrap; }
+}
+
+/* iOS zooms the page when focusing a control with font-size < 16px and stays
+   zoomed — 16px on touch widths kills that without blocking pinch-zoom. */
+@media (max-width: 768px) {
+  .bm-input, .bm-select, .bm-textarea { font-size: 16px; }
+}
+
+/* Kanban cards can't be dragged on touch screens — phones get ‹ › move
+   buttons on each card instead (hidden on desktop where drag works). */
+.bm-card-move { display: none; }
+@media (max-width: 768px) {
+  .bm-card-move { display: flex; gap: 6px; }
+  .bm-card-move button {
+    flex: 1; min-height: 30px; border: 1px solid var(--bm-border);
+    border-radius: var(--bm-radius-sm); background: var(--bm-surface-2);
+    color: var(--bm-text-muted); font-weight: 700; cursor: pointer;
+  }
+  .bm-card-move button:disabled { opacity: .35; }
 }
 
 /* Dashboard sections: on phones the card header becomes a tap target that

@@ -157,6 +157,9 @@ export default function TasksPage() {
 
               {colTasks.map((t) => {
                 const pm = prioMeta(t.priority);
+                const colIdx = TASK_COLUMNS.findIndex((c) => c.key === t.status);
+                const prevCol = TASK_COLUMNS[colIdx - 1];
+                const nextCol = TASK_COLUMNS[colIdx + 1];
                 return (
                   <div
                     key={t.id}
@@ -180,6 +183,19 @@ export default function TasksPage() {
                         ) : null}
                       </span>
                       <span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{t.assignee}</span>
+                    </div>
+                    {/* Телефон: влаченето не работи на touch — стрелките местят между колоните */}
+                    <div className="bm-card-move">
+                      <button
+                        disabled={!prevCol}
+                        aria-label={prevCol ? `Премести в ${prevCol.title}` : undefined}
+                        onClick={(e) => { e.stopPropagation(); if (prevCol) moveTask(t.id, prevCol.key); }}
+                      >‹ {prevCol?.title || "—"}</button>
+                      <button
+                        disabled={!nextCol}
+                        aria-label={nextCol ? `Премести в ${nextCol.title}` : undefined}
+                        onClick={(e) => { e.stopPropagation(); if (nextCol) moveTask(t.id, nextCol.key); }}
+                      >{nextCol?.title || "—"} ›</button>
                     </div>
                   </div>
                 );
