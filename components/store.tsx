@@ -13,7 +13,7 @@ import {
   seedSocialPosts,
   seedContentItems,
   defaultStages,
-  PRODUCTION_STAGES,
+  stagesForType,
   STAGE_DEFAULT_PAY,
   stageMeta,
   ROLE_LABELS,
@@ -54,6 +54,7 @@ import {
 } from "@/lib/data";
 import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, CycleForm, IdeaForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
+import { brandValueToText, type BrandAnswers, type BrandProfile } from "@/lib/brand";
 
 export interface CurrentUser { name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
 export interface ActivityItem { id: string; actor_name: string; actor_initials: string; action: string; created_at: string; audience?: "team" | "admin" }
@@ -76,6 +77,8 @@ export type Modal =
   | { kind: "content"; mode: "create"; clientId: string; date: string }
   | { kind: "content"; mode: "edit"; item: ContentItem }
   | { kind: "importScripts" }
+  | { kind: "brand"; clientId: string }
+  | { kind: "createPosts" }
   | { kind: "cycle" }
   | { kind: "idea"; mode: "create" }
   | { kind: "idea"; mode: "edit"; idea: Idea }
@@ -118,7 +121,7 @@ interface Store {
   addContentItem: (clientId: string, f: ContentItemForm) => void;
   updateContentItem: (id: string, f: ContentItemForm) => void;
   deleteContentItem: (id: string) => void;
-  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>) => void;
+  importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>, notes?: string) => void;
   addIdea: (f: IdeaForm) => void;
   updateIdea: (id: string, f: IdeaForm) => void;
   deleteIdea: (id: string) => void;
@@ -143,6 +146,8 @@ interface Store {
   videoMetrics: VideoMetric[];
   saveVideoMetrics: (contentItemId: string, m: { platform: string; url: string; views: number; likes: number; comments: number; shares: number; source?: "manual" | "auto" }) => void;
   getPortalLink: (clientId: string) => Promise<string | null>;
+  brandProfiles: BrandProfile[];
+  saveBrandAnswers: (clientId: string, answers: BrandAnswers) => void;
   addComment: (entityType: "client" | "task", entityId: string, body: string) => void;
   notify: (recipient: string, body: string, opts?: { link?: string; entity_type?: string; entity_id?: string }) => void;
   markNotificationRead: (id: string) => void;
@@ -207,6 +212,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
   const [videoMetrics, setVideoMetrics] = useState<VideoMetric[]>([]);
+  const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
   const [loading, setLoading] = useState(supabaseConfigured);
   const [modal, setModal] = useState<Modal>(null);
@@ -245,6 +251,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("approvals").select("*").order("created_at", { ascending: false }),
           sb.from("video_metrics").select("*"),
         ]);
+        // Липсваща таблица (миграция 0029 още не е пусната) просто оставя
+        // празни бранд профили — грешката не пипа останалите данни.
+        const bp = await sb.from("brand_profiles").select("*");
+        if (bp.data && !cancelled) setBrandProfiles(bp.data as BrandProfile[]);
         if (cancelled) return;
         if (c.data) setClients(c.data as Client[]);
         if (iv.data) setInvoices((iv.data as InvoiceRow[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
@@ -717,7 +727,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- Content calendar ----
   const addContentItem = useCallback((clientId: string, f: ContentItemForm) => {
     const client = clients.find((c) => c.id === clientId);
-    const stages = defaultStages(team, client?.editor || "", currentUser.initials);
+    const stages = defaultStages(team, client?.editor || "", currentUser.initials, f.type);
     const date = f.date || null;
     const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", published: f.published, current_stage: "strategy", stages };
     const { client_id: newClient, ...restRow } = row;
@@ -732,20 +742,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // `startStage` with the prior stages pre-marked done (strategy + script were
   // written in the doc). Reuses defaultStages so the camera/editor owners are
   // auto-assigned — i.e. the work is distributed to the team on confirm.
-  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>) => {
+  const importScripts = useCallback((clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>, notes?: string) => {
     if (!videos.length) return;
     const client = clients.find((c) => c.id === clientId);
-    const order = PRODUCTION_STAGES.map((s) => s.key);
+    const order = stagesForType(type).map((s) => s.key);
     const ti = Math.max(0, order.indexOf(startStage));
     const base = Date.now();
     const rows = videos.map((v, i) => {
-      const stages = defaultStages(team, client?.editor || "", currentUser.initials).map((s) => {
+      const stages = defaultStages(team, client?.editor || "", currentUser.initials, type).map((s) => {
         const idx = order.indexOf(s.key);
         // Ръчно избраните от админа изпълнители при импорта бият дефолтите.
         return { ...s, assignee: stageAssignees?.[s.key] || s.assignee, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
       });
       // Линкът към суровия материал важи за цялата партида от този импорт.
-      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: "", script: v.script, hook: v.hook || "", cta: v.cta || "", cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
+      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: notes || "", script: v.script, hook: v.hook || "", cta: v.cta || "", cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
@@ -797,7 +807,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const clientId = idea.client || clients[0]?.id;
     if (!clientId) return;
     const client = clients.find((c) => c.id === clientId);
-    const stages = defaultStages(team, client?.editor || "", currentUser.initials);
+    const stages = defaultStages(team, client?.editor || "", currentUser.initials, "reel");
     const row = { id: "ct-" + Date.now(), client_id: clientId, date: null as string | null, type: "reel" as ContentType, title: idea.title, notes: idea.description, script: "", hook: idea.hook, hook_type: "", cta: "", caption: "", hashtags: "", notion_url: "", published: false, current_stage: "strategy", stages };
     const { client_id: rowClient, ...rest } = row;
     setContentItems((list) => [...list, { ...rest, client: rowClient }]);
@@ -877,6 +887,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return token;
   }, [notifyError]);
 
+  // Бранд въпросникът (таб „Бранд" + модалът за редакция/импорт). Освен
+  // brand_profiles огледално обновява и трите AI полета върху clients
+  // (brand_voice/target_audience/brand_assets_url) — AI контекстът ги чете.
+  const saveBrandAnswers = useCallback((clientId: string, answers: BrandAnswers) => {
+    const row: BrandProfile = { client_id: clientId, answers, updated_at: new Date().toISOString() };
+    setBrandProfiles((list) => (list.some((p) => p.client_id === clientId) ? list.map((p) => (p.client_id === clientId ? row : p)) : [...list, row]));
+    const mirror = {
+      brand_voice: brandValueToText(answers.tone_of_voice) || undefined,
+      target_audience: brandValueToText(answers.ideal_client) || undefined,
+      brand_assets_url: (Array.isArray(answers.assets_links) && answers.assets_links.length && typeof answers.assets_links[0] === "object" && "url" in answers.assets_links[0] ? answers.assets_links[0].url : undefined),
+    };
+    const clientPatch = Object.fromEntries(Object.entries(mirror).filter(([, v]) => v !== undefined));
+    if (Object.keys(clientPatch).length) {
+      setClients((list) => list.map((c) => (c.id === clientId ? { ...c, ...clientPatch } : c)));
+    }
+    const client = sb();
+    if (client) {
+      client.from("brand_profiles").upsert(row, { onConflict: "client_id" }).then(({ error }) => {
+        if (error) { console.error("[BrandMotion] saveBrandAnswers failed:", error); notifyError("Бранд профилът не се запази: " + error.message + " — провери миграция 0029."); }
+      });
+      if (Object.keys(clientPatch).length) client.from("clients").update(clientPatch).eq("id", clientId).then(() => {});
+    }
+    const name = clients.find((c) => c.id === clientId)?.name || clientId;
+    logActivity(`обнови бранд профила на ${name}`, "team");
+    setModal(null);
+  }, [clients, logActivity, notifyError]);
+
   // ---- Production pipeline ----
   const persistItem = (id: string, patch: Record<string, unknown>) =>
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => {
@@ -886,9 +923,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const advanceStage = useCallback((itemId: string, toStage: string) => {
     const item = contentItems.find((c) => c.id === itemId);
     if (!item) return;
-    const order = PRODUCTION_STAGES.map((s) => s.key);
+    const order = stagesForType(item.type).map((s) => s.key);
     const ti = order.indexOf(toStage);
-    const existing = item.stages || defaultStages(team, "", currentUser.initials);
+    const existing = item.stages || defaultStages(team, "", currentUser.initials, item.type);
     const nextStages = existing.map((s) => {
       const idx = order.indexOf(s.key);
       return { ...s, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
@@ -937,9 +974,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [contentItems, tasks, syncStageTask, notify, notifyError]);
 
   const setStageStatus = useCallback((itemId: string, stageKey: string, status: StageStatus) => {
-    const order = PRODUCTION_STAGES.map((s) => s.key);
     const c = contentItems.find((x) => x.id === itemId);
     if (!c) return;
+    const order = stagesForType(c.type).map((s) => s.key);
     const cur = c.current_stage || order[0];
     // Auto-advance: marking the CURRENT stage "done" moves the video forward.
     if (status === "done" && stageKey === cur) {
@@ -1231,7 +1268,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
     advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, visibleClients,
-    videoMetrics, saveVideoMetrics, getPortalLink,
+    videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,

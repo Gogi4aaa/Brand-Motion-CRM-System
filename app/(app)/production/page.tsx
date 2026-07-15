@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { ContentCalendar } from "@/components/ContentCalendar";
-import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
+import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
   const { contentItems, clients, cycles, currentUser, advanceStage, completeVideo, advanceCycle, openModal, visibleClients, team } = useStore();
@@ -19,6 +19,8 @@ export default function ProductionPage() {
   const byId = clientsById(clients);
   const allowedIds = new Set(visibleClients.map((c) => c.id));
   const [clientFilter, setClientFilter] = useState("all");
+  // Два борда: видеата минават през видео етапите, постовете — през своите.
+  const [boardTab, setBoardTab] = useState<"videos" | "posts">("videos");
   const [mine, setMine] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -37,10 +39,15 @@ export default function ProductionPage() {
   const archivedCount = inScope.filter((c) => c.published && isArchived(c.published_at)).length;
   const visible = showArchive ? inScope : inScope.filter((c) => !(c.published && isArchived(c.published_at)));
 
-  const colItems = (stageKey: string) => visible.filter((c) => !c.published && (c.current_stage || "strategy") === stageKey);
+  const inTab = (c: { type: string }) => (boardTab === "posts" ? c.type === "post" : c.type !== "post");
+  const tabItems = visible.filter(inTab);
+  const stagesSet = boardTab === "posts" ? POST_STAGES : PRODUCTION_STAGES;
+  const colItems = (stageKey: string) => tabItems.filter((c) => !c.published && (c.current_stage || "strategy") === stageKey);
   // Публикуваните (ръчно, през етапите или от нощния job при минала дата)
   // живеят в отделната колона „Приключени“.
-  const completed = visible.filter((c) => c.published);
+  const completed = tabItems.filter((c) => c.published);
+  const videosCount = visible.filter((c) => c.type !== "post").length;
+  const postsCount = visible.filter((c) => c.type === "post").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
@@ -103,8 +110,18 @@ export default function ProductionPage() {
         </div>
       )}
 
-      <div className="bm-board bm-board--7">
-        {PRODUCTION_STAGES.map((col) => {
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
+        <div className="bm-tabs" style={{ border: "none" }}>
+          <button className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
+          <button className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
+        </div>
+        {boardTab === "posts" && (canImport || myRoles.includes("posts")) && (
+          <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => openModal({ kind: "createPosts" })}>+ Нови постове</button>
+        )}
+      </div>
+
+      <div className={"bm-board " + (boardTab === "posts" ? "bm-board--6" : "bm-board--7")}>
+        {stagesSet.map((col) => {
           const items = colItems(col.key);
           return (
             <div
@@ -131,7 +148,7 @@ export default function ProductionPage() {
               {items.map((it) => {
                 const ct = contentTypeMeta(it.type);
                 const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));
-                const canMove = currentUser.isAdmin || cur?.assignee === currentUser.initials;
+                const canMove = currentUser.isAdmin || currentUser.level === "manager" || cur?.assignee === currentUser.initials;
                 return (
                   <div
                     key={it.id}

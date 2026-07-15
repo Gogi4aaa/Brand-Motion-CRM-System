@@ -28,9 +28,14 @@ interface PortalData {
 
 const TYPE_LABELS: Record<string, string> = { promo: "Промо", info: "Инфо", reel: "Рийл", project: "Проект", post: "Пост" };
 const STAGE_LABELS: Record<string, string> = {
-  strategy: "Идея", script: "Сценарий", shoot: "Снимки", edit: "Монтаж", review: "Преглед", publish: "Качване",
+  strategy: "Идея", script: "Сценарий", shoot: "Снимки", edit: "Монтаж",
+  copy: "Текст", design: "Дизайн", review: "Преглед", publish: "Качване",
 };
-const STAGE_ORDER = ["strategy", "script", "shoot", "edit", "review", "publish"];
+// Редът на етапите идва от самия елемент (видеата и постовете имат различни
+// вериги); резервен ред за стари записи без stages.
+const FALLBACK_ORDER = ["strategy", "script", "shoot", "edit", "review", "publish"];
+const stageOrderOf = (item: PortalItem) =>
+  item.stages.length ? item.stages.map((s) => s.key) : FALLBACK_ORDER;
 const INV_LABELS: Record<string, { label: string; cls: string }> = {
   paid: { label: "Платена", cls: "bm-badge--success" },
   pending: { label: "Чака плащане", cls: "bm-badge--warning" },
@@ -50,17 +55,18 @@ const monthName = (ym: string) => {
 };
 
 function Progress({ item }: { item: PortalItem }) {
-  const doneCount = item.published ? STAGE_ORDER.length : STAGE_ORDER.filter((k) => item.stages.find((s) => s.key === k)?.status === "done").length;
-  const pct = Math.round((doneCount / STAGE_ORDER.length) * 100);
+  const order = stageOrderOf(item);
+  const doneCount = item.published ? order.length : order.filter((k) => item.stages.find((s) => s.key === k)?.status === "done").length;
+  const pct = Math.round((doneCount / order.length) * 100);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div className="pt-track"><div className="pt-fill" style={{ width: pct + "%" }} /></div>
       <div className="pt-stages">
-        {STAGE_ORDER.map((k) => {
+        {order.map((k) => {
           const st = item.published ? "done" : item.stages.find((s) => s.key === k)?.status || "todo";
           const active = !item.published && k === item.current_stage;
           const cls = st === "done" ? "pt-chip pt-chip--done" : active || st === "doing" ? "pt-chip pt-chip--active" : "pt-chip";
-          return <span key={k} className={cls}>{st === "done" ? "✓ " : ""}{STAGE_LABELS[k]}</span>;
+          return <span key={k} className={cls}>{st === "done" ? "✓ " : ""}{STAGE_LABELS[k] || k}</span>;
         })}
       </div>
     </div>

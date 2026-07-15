@@ -6,8 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Icon } from "./Icon";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, PRODUCTION_STAGES, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
-import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
+import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
+import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
+import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -52,9 +53,160 @@ export function Modals() {
   if (modal.kind === "ad") return <AdModal />;
   if (modal.kind === "content") return <ContentModal />;
   if (modal.kind === "importScripts") return <ScriptImportModal />;
+  if (modal.kind === "createPosts") return <PostsCreateModal />;
   if (modal.kind === "cycle") return <CycleModal />;
   if (modal.kind === "idea") return <IdeaModal />;
+  if (modal.kind === "brand") return <BrandProfileModal />;
   return <InvoiceModal />;
+}
+
+// Бранд въпросникът на клиент: ръчна редакция на всички секции + импорт на
+// попълнения .docx шаблон (/api/import/brand разчита отговорите по номера).
+// Полетата са динамични по BRAND_SECTIONS — затова useState, не react-hook-form.
+function BrandProfileModal() {
+  const { modal, closeModal, clients, brandProfiles, saveBrandAnswers } = useStore();
+  const clientId = modal?.kind === "brand" ? modal.clientId : "";
+  const clientName = clients.find((c) => c.id === clientId)?.name || "";
+  const existing = brandProfiles.find((p) => p.client_id === clientId)?.answers;
+  const [answers, setAnswers] = useState<BrandAnswers>(() => ({ ...(existing || {}) }));
+  const [file, setFile] = useState<File | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ answers: BrandAnswers; missing: number[] } | null>(null);
+  const [importNote, setImportNote] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const set = (key: string, v: BrandAnswers[string]) => setAnswers((a) => ({ ...a, [key]: v }));
+  const hasFilled = Object.values(answers).some((v) => hasBrandValue(v));
+
+  const applyImport = (imp: { answers: BrandAnswers; missing: number[] }) => {
+    setAnswers((a) => ({ ...a, ...imp.answers }));
+    const found = Object.keys(imp.answers).length;
+    setImportNote(`Разчетени ${found} отговора.` + (imp.missing.length ? ` Без отговор останаха въпроси № ${imp.missing.join(", ")} — попълни ги ръчно, ако имаш информацията.` : ""));
+    setPendingImport(null);
+  };
+
+  const analyze = async () => {
+    if (!file) { setError("Избери .docx файл."); return; }
+    setLoading(true); setError(""); setImportNote("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/import/brand", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Грешка при анализа."); return; }
+      const imp = { answers: data.answers as BrandAnswers, missing: (data.missing || []) as number[] };
+      // Ако вече има попълнени полета, импортът ги презаписва — искаме явно „да".
+      if (hasFilled) setPendingImport(imp);
+      else applyImport(imp);
+    } catch {
+      setError("Файлът не можа да бъде качен.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const save = () => {
+    const parsed = brandAnswersSchema.safeParse(answers);
+    if (!parsed.success) { setError("Провери полетата: " + (parsed.error.issues[0]?.message || "невалидна стойност")); return; }
+    // Чисти празните стойности, за да не пълним jsonb-а с боклук.
+    const clean: BrandAnswers = {};
+    for (const [k, v] of Object.entries(answers)) if (hasBrandValue(v)) clean[k] = v;
+    saveBrandAnswers(clientId, clean);
+  };
+
+  const colorField = (q: BrandQuestion) => {
+    const list = (answers[q.key] as BrandColor[] | undefined) || [];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+        {list.map((c, i) => (
+          <div key={i} style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center" }}>
+            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#000000"} onChange={(e) => set(q.key, list.map((x, j) => (j === i ? { ...x, hex: e.target.value } : x)))} style={{ width: 36, height: 32, padding: 2, border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-sm)", background: "none", cursor: "pointer" }} />
+            <input className="bm-input" style={{ width: 110, fontFamily: "var(--bm-font-mono)" }} value={c.hex} onChange={(e) => set(q.key, list.map((x, j) => (j === i ? { ...x, hex: e.target.value } : x)))} placeholder="#0090B5" />
+            <input className="bm-input" style={{ flex: 1 }} value={c.name || ""} onChange={(e) => set(q.key, list.map((x, j) => (j === i ? { ...x, name: e.target.value || undefined } : x)))} placeholder="име / къде се ползва (по избор)" />
+            <button type="button" className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => set(q.key, list.filter((_, j) => j !== i))}><Icon name="close" size={14} /></button>
+          </div>
+        ))}
+        <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => set(q.key, [...list, { hex: "#0090B5" }])}>+ Цвят</button>
+      </div>
+    );
+  };
+
+  const linkField = (q: BrandQuestion) => {
+    const list = (answers[q.key] as BrandLink[] | undefined) || [];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+        {list.map((l, i) => (
+          <div key={i} style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center" }}>
+            <input className="bm-input" style={{ flex: 2 }} value={l.url} onChange={(e) => set(q.key, list.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} placeholder="https://…" />
+            <input className="bm-input" style={{ flex: 1 }} value={l.label || ""} onChange={(e) => set(q.key, list.map((x, j) => (j === i ? { ...x, label: e.target.value || undefined } : x)))} placeholder="описание (по избор)" />
+            <button type="button" className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => set(q.key, list.filter((_, j) => j !== i))}><Icon name="close" size={14} /></button>
+          </div>
+        ))}
+        <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => set(q.key, [...list, { url: "" }])}>+ Линк</button>
+      </div>
+    );
+  };
+
+  const field = (q: BrandQuestion) => {
+    if (q.type === "colors") return colorField(q);
+    if (q.type === "links") return linkField(q);
+    if (q.type === "tags") {
+      const list = (answers[q.key] as string[] | undefined) || [];
+      return <input className="bm-input" value={list.join(", ")} onChange={(e) => set(q.key, e.target.value.split(",").map((t) => t.trim()).filter(Boolean))} placeholder="разделени със запетая" />;
+    }
+    if (q.type === "select") {
+      return (
+        <select className="bm-select" value={(answers[q.key] as string) || ""} onChange={(e) => set(q.key, e.target.value)}>
+          <option value="">— не е избрано —</option>
+          {(q.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      );
+    }
+    if (q.type === "textarea") return <textarea className="bm-input" rows={3} value={(answers[q.key] as string) || ""} onChange={(e) => set(q.key, e.target.value)} />;
+    return <input className="bm-input" value={(answers[q.key] as string) || ""} onChange={(e) => set(q.key, e.target.value)} />;
+  };
+
+  return (
+    <Shell title={`Бранд профил — ${clientName}`} onClose={closeModal}>
+      <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)", maxHeight: "65dvh", overflowY: "auto" }}>
+        <div className="bm-card" style={{ background: "var(--bm-surface-2)" }}>
+          <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+            <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>Импорт от попълнения въпросник (.docx)</div>
+            <div style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center", flexWrap: "wrap" }}>
+              <input className="bm-input" style={{ flex: 1, minWidth: 220 }} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              <button type="button" className="bm-btn bm-btn--secondary" onClick={analyze} disabled={loading}>{loading ? "Разчитам…" : "Разчети файла"}</button>
+            </div>
+            {pendingImport && (
+              <div className="bm-alert bm-alert--danger" style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ flex: 1 }}>Импортът ще презапише вече попълнените полета с това от файла.</span>
+                <button type="button" className="bm-btn bm-btn--danger bm-btn--sm" onClick={() => applyImport(pendingImport)}>Презапиши</button>
+                <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => setPendingImport(null)}>Отказ</button>
+              </div>
+            )}
+            {importNote && <div className="bm-alert bm-alert--info">{importNote}</div>}
+          </div>
+        </div>
+
+        {BRAND_SECTIONS.map((s) => (
+          <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+            <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)", color: "var(--bm-primary)", borderBottom: "1px solid var(--bm-border)", paddingBottom: 4 }}>{s.title}</div>
+            {s.questions.map((q) => (
+              <div key={q.key} className="bm-field">
+                <label className="bm-label">{q.num}. {q.label}</label>
+                {q.hint && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", marginBottom: 4 }}>{q.hint}</span>}
+                {field(q)}
+              </div>
+            ))}
+          </div>
+        ))}
+        <Err msg={error} />
+      </div>
+      <div className="bm-modal__footer">
+        <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
+        <button type="button" className="bm-btn bm-btn--primary" onClick={save}>Запази профила</button>
+      </div>
+    </Shell>
+  );
 }
 
 function CycleModal() {
@@ -531,13 +683,15 @@ function ContentModal() {
   const createCtx = modal?.kind === "content" && modal.mode === "create" ? modal : null;
   const clientId = editing ? (live?.client ?? "") : (createCtx?.clientId ?? "");
   const client = clients.find((c) => c.id === clientId);
-  const { register, handleSubmit, getValues, setValue, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
+  const { register, handleSubmit, getValues, setValue, watch, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
       ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", published: editing.published ?? false }
       : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", published: false },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
+  // Постът има различни полета: без Кука/Сценарий/CTA, с „Текст на поста“.
+  const isPost = watch("type") === "post";
 
   // ---- AI helpers ----
   interface ScriptVariant { hook: string; hook_type: string; body: string; payoff: string; cta: string }
@@ -604,8 +758,9 @@ function ContentModal() {
             <div className="bm-field"><label className="bm-label">Тип</label><select className="bm-select" {...register("type")}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
           </div>
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. промо продукт" /><Err msg={errors.title?.message} /></div>
-          <div className="bm-field"><label className="bm-label">Бележки</label><textarea className="bm-textarea" {...register("notes")} placeholder="Бриф, референции, бележки…" /></div>
+          <div className="bm-field"><label className="bm-label">{isPost ? "Задание" : "Бележки"}</label><textarea className="bm-textarea" {...register("notes")} placeholder={isPost ? "Какво да казва постът, акценти, визия…" : "Бриф, референции, бележки…"} /></div>
 
+          {!isPost && (
           <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div className="bm-label" style={{ fontWeight: 700 }}>Сценарий (Hook → Стойност → CTA)</div>
@@ -631,20 +786,21 @@ function ContentModal() {
             <div className="bm-field"><label className="bm-label">Тяло на сценария</label><textarea className="bm-textarea" style={{ minHeight: 140 }} {...register("script")} placeholder="Стойностните точки на видеото (импортира се от .docx или се пише тук)…" /></div>
             <div className="bm-field"><label className="bm-label">CTA (призив към действие)</label><input className="bm-input" {...register("cta")} placeholder="напр. Последвай ни за още / Пиши ни в direct…" /></div>
           </div>
+          )}
 
           <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div className="bm-label" style={{ fontWeight: 700 }}>Публикуване</div>
+              <div className="bm-label" style={{ fontWeight: 700 }}>{isPost ? "Съдържание на поста" : "Публикуване"}</div>
               <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" disabled={aiBusy !== ""} onClick={genCaption}>{aiBusy === "caption" ? "Генерирам…" : "✨ AI caption + хаштагове"}</button>
             </div>
-            <div className="bm-field"><label className="bm-label">Caption</label><textarea className="bm-textarea" {...register("caption")} placeholder="Описанието на публикацията — кука в първия ред…" /></div>
+            <div className="bm-field"><label className="bm-label">{isPost ? "Текст на поста" : "Caption"}</label><textarea className="bm-textarea" style={isPost ? { minHeight: 140 } : undefined} {...register("caption")} placeholder={isPost ? "Пълният текст на поста — кука в първия ред…" : "Описанието на публикацията — кука в първия ред…"} /></div>
             <div className="bm-field"><label className="bm-label">Хаштагове</label><input className="bm-input" {...register("hashtags")} placeholder="#бранд #ниша #широк" /></div>
             <div className="bm-field"><label className="bm-label">Notion линк (по избор)</label><input className="bm-input" {...register("notion_url")} placeholder="https://notion.so/…" /></div>
             <div className="bm-field">
-              <label className="bm-label">Суров материал (линк)</label>
+              <label className="bm-label">{isPost ? "Визия / материали (линк)" : "Суров материал (линк)"}</label>
               <input className="bm-input" {...register("footage_url")} placeholder="https://drive.google.com/…" />
               {(live?.footage_url || editing?.footage_url) && (
-                <a href={live?.footage_url || editing?.footage_url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600, marginTop: 4 }}>Отвори суровия материал ↗</a>
+                <a href={live?.footage_url || editing?.footage_url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600, marginTop: 4 }}>{isPost ? "Отвори визиите ↗" : "Отвори суровия материал ↗"}</a>
               )}
             </div>
             <label className="bm-checkbox" title={canPublish ? "" : "Отбелязва се от админ, мениджър или Публикуващ"}><input type="checkbox" disabled={!canPublish} {...register("published")} /> Публикувано</label>
@@ -695,7 +851,7 @@ function ContentModal() {
           {editing && stages.length > 0 && (
             <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
               <div className="bm-label">Продукция — кой какво прави</div>
-              {PRODUCTION_STAGES.map((st) => {
+              {stagesForType((live?.type ?? editing?.type) as ContentType).map((st) => {
                 const s = stages.find((x) => x.key === st.key) || { assignee: "", status: "todo" as const };
                 return (
                   <div key={st.key} className="bm-stage-row">
@@ -745,6 +901,84 @@ function ContentModal() {
   );
 }
 
+// Постовете не се импортват от docx — създават се направо: по един на ред,
+// с общо задание, линк към визиите и (за админ) разпределение по пост етапите.
+function PostsCreateModal() {
+  const { closeModal, visibleClients: clients, importScripts, cycles, currentUser, team } = useStore();
+  const [clientId, setClientId] = useState(clients[0]?.id ?? "");
+  const [titlesText, setTitlesText] = useState("");
+  const [notes, setNotes] = useState("");
+  const [materialsUrl, setMaterialsUrl] = useState("");
+  const [startStage, setStartStage] = useState("copy");
+  // Дефолтите по роли + ръчните промени на админа отгоре им; смяната на
+  // клиент чисти ръчните промени (дефолтите се преизчисляват сами).
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+
+  const titles = titlesText.split("\n").map((t) => t.trim()).filter(Boolean);
+  const client = clients.find((c) => c.id === clientId);
+  const openCycle = cycles.find((c) => c.client === clientId && c.phase !== "published");
+  const stageAssign: Record<string, string> = {
+    ...Object.fromEntries(defaultStages(team, client?.editor || "", currentUser.initials, "post").map((st) => [st.key, st.assignee])),
+    ...overrides,
+  };
+
+  // Изпълнител без достъп до клиента няма да види поста в Продукция.
+  const noAccess = Array.from(new Set(Object.values(stageAssign))).filter((ini) => {
+    if (!ini) return false;
+    const m = team.find((x) => x.initials === ini);
+    return !!m && m.role === "worker" && !(m.client_ids || []).includes(clientId);
+  });
+
+  const create = () => {
+    if (!clientId) { setError("Избери клиент."); return; }
+    if (!titles.length) { setError("Напиши поне едно заглавие — по един пост на ред."); return; }
+    importScripts(clientId, "post", startStage, titles.map((title) => ({ title, script: "" })), openCycle?.id, materialsUrl, currentUser.isAdmin ? stageAssign : undefined, notes);
+  };
+
+  return (
+    <Shell title="Нови постове" onClose={closeModal}>
+      <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+        <div className="bm-form-row">
+          <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" value={clientId} onChange={(e) => { setClientId(e.target.value); setOverrides({}); }}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          <div className="bm-field"><label className="bm-label">Започни от етап</label><select className="bm-select" value={startStage} onChange={(e) => setStartStage(e.target.value)}>{POST_STAGES.filter((st) => st.key === "strategy" || st.key === "copy").map((st) => <option key={st.key} value={st.key}>{st.label}</option>)}</select></div>
+        </div>
+        <div className="bm-field">
+          <label className="bm-label">Постове — по един на ред</label>
+          <textarea className="bm-textarea" style={{ minHeight: 120 }} value={titlesText} onChange={(e) => setTitlesText(e.target.value)} placeholder={"5 причини да изберете нас\nПромоция за юли\nЗапознай се с екипа"} />
+          {titles.length > 0 && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{titles.length} {titles.length === 1 ? "пост" : "поста"} ще бъдат създадени.</span>}
+        </div>
+        <div className="bm-field"><label className="bm-label">Задание / бележки (общо за всички, по избор)</label><textarea className="bm-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Тон, акценти, какво да се вижда на визията…" /></div>
+        <div className="bm-field"><label className="bm-label">Линк към материали/визии (по избор)</label><input className="bm-input" value={materialsUrl} onChange={(e) => setMaterialsUrl(e.target.value)} placeholder="https://drive.google.com/…" /></div>
+        {currentUser.isAdmin && (
+          <div style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+            <div className="bm-label">Кой какво прави за тези постове</div>
+            {POST_STAGES.map((st) => (
+              <div key={st.key} className="bm-stage-row">
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--bm-text-sm)" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} />{st.label}</span>
+                <select className="bm-select" style={{ minHeight: 32, fontSize: "var(--bm-text-xs)", gridColumn: "2 / -1" }} value={stageAssign[st.key] || ""} onChange={(e) => setOverrides((cur) => ({ ...cur, [st.key]: e.target.value }))}>
+                  <option value="">—</option>
+                  {team.map((m) => <option key={m.id} value={m.initials}>{m.initials} — {m.name}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+        {noAccess.length > 0 && (
+          <div className="bm-alert bm-alert--warning" style={{ fontSize: "var(--bm-text-xs)" }}>
+            {noAccess.join(", ")} {noAccess.length === 1 ? "няма" : "нямат"} достъп до този клиент и няма да виждат постовете в Продукция (таскът пак ще стигне). Дай достъп от Екип → достъп до клиенти.
+          </div>
+        )}
+        <Err msg={error} />
+      </div>
+      <div className="bm-modal__footer">
+        <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
+        <button type="button" className="bm-btn bm-btn--primary" disabled={!titles.length} onClick={create}>Създай {titles.length || ""} {titles.length === 1 ? "пост" : "поста"}</button>
+      </div>
+    </Shell>
+  );
+}
+
 interface ImportRow { title: string; script: string; hook?: string; cta?: string; include: boolean }
 
 function ScriptImportModal() {
@@ -772,7 +1006,7 @@ function ScriptImportModal() {
       if (!res.ok) { setError(data.error || "Грешка при анализа."); return; }
       setRows((data.videos as { title: string; script: string; hook?: string; cta?: string }[]).map((v) => ({ ...v, include: true })));
       const cl = clients.find((c) => c.id === clientId);
-      setStageAssign(Object.fromEntries(defaultStages(team, cl?.editor || "", currentUser.initials).map((st) => [st.key, st.assignee])));
+      setStageAssign(Object.fromEntries(defaultStages(team, cl?.editor || "", currentUser.initials, type).map((st) => [st.key, st.assignee])));
       setStep("preview");
     } catch {
       setError("Файлът не можа да бъде качен.");
@@ -796,9 +1030,9 @@ function ScriptImportModal() {
             <div className="bm-alert bm-alert--info">Всяко видео трябва да започва със заглавие (Heading) в документа. Текстът след заглавието става сценарий на това видео.</div>
             <div className="bm-form-row">
               <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" value={clientId} onChange={(e) => setClientId(e.target.value)}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-              <div className="bm-field"><label className="bm-label">Тип съдържание</label><select className="bm-select" value={type} onChange={(e) => setType(e.target.value as ContentType)}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
+              <div className="bm-field"><label className="bm-label">Тип съдържание</label><select className="bm-select" value={type} onChange={(e) => { const t = e.target.value as ContentType; setType(t); if (!stagesForType(t).some((st) => st.key === startStage)) setStartStage(stagesForType(t)[1].key); }}>{CONTENT_TYPES.filter((c) => c.id !== "post").map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
             </div>
-            <div className="bm-field"><label className="bm-label">Започни от етап</label><select className="bm-select" value={startStage} onChange={(e) => setStartStage(e.target.value)}>{PRODUCTION_STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></div>
+            <div className="bm-field"><label className="bm-label">Започни от етап</label><select className="bm-select" value={startStage} onChange={(e) => setStartStage(e.target.value)}>{stagesForType(type).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Файл (.docx)</label><input className="bm-input" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
             <div className="bm-field">
               <label className="bm-label">Линк към суровия материал (по избор)</label>
@@ -813,7 +1047,7 @@ function ScriptImportModal() {
             {currentUser.isAdmin && (
               <div style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
                 <div className="bm-label">Кой какво прави за тези видеа</div>
-                {PRODUCTION_STAGES.map((st) => (
+                {stagesForType(type).map((st) => (
                   <div key={st.key} className="bm-stage-row">
                     <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--bm-text-sm)" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} />{st.label}</span>
                     <select

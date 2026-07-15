@@ -111,6 +111,21 @@ export const cycleSchema = z.object({
 });
 export type CycleForm = z.infer<typeof cycleSchema>;
 
+// Отговорите на бранд въпросника (lib/brand.ts). Ключовете са по question.key;
+// passthrough пази отговори на въпроси, които междувременно са отпаднали.
+const brandColor = z.object({ hex: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Невалиден hex"), name: z.string().max(80).optional() });
+const brandLink = z.object({ label: z.string().max(200).optional(), url: z.string().trim().max(2000) });
+export const brandAnswersSchema = z
+  .object({
+    primary_colors: z.array(brandColor).max(12).optional(),
+    accent_colors: z.array(brandColor).max(12).optional(),
+    assets_links: z.array(brandLink).max(20).optional(),
+    inspiration: z.array(brandLink).max(20).optional(),
+    tone_tags: z.array(z.string().max(60)).max(30).optional(),
+  })
+  .catchall(z.union([z.string().max(4000), z.array(z.string().max(60)).max(30)]));
+export type BrandAnswersForm = z.infer<typeof brandAnswersSchema>;
+
 export const invoiceSchema = z.object({
   client: z.string().min(1, "Pick a client"),
   amount: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),

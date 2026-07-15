@@ -221,6 +221,7 @@ export const PRODUCTION_ROLES: { id: string; label: string }[] = [
   { id: "script", label: "Сценарист" },
   { id: "camera", label: "Видеограф" },
   { id: "editor", label: "Монтажист" },
+  { id: "posts", label: "Пост криейтър" },
   { id: "review", label: "Публикуващ" },
 ];
 
@@ -249,7 +250,22 @@ export const PRODUCTION_STAGES: { key: string; label: string; role: string; dot:
   { key: "publish", label: "Публикуване", role: "review", dot: "var(--bm-success-500)" },
 ];
 
-export const stageMeta = (key: string) => PRODUCTION_STAGES.find((s) => s.key === key) || PRODUCTION_STAGES[0];
+// Постовете минават през собствена, по-къса верига: Пост криейтърът поема
+// Текст и Дизайн, останалото е като при видеата (Стратег → … → Публикуващ).
+export const POST_STAGES: { key: string; label: string; role: string; dot: string }[] = [
+  { key: "strategy", label: "Идея", role: "strategy", dot: "var(--bm-info-500)" },
+  { key: "copy", label: "Текст", role: "posts", dot: "var(--bm-brand-400)" },
+  { key: "design", label: "Дизайн", role: "posts", dot: "#9D2667" },
+  { key: "review", label: "Преглед", role: "review", dot: "var(--bm-brand-600)" },
+  { key: "publish", label: "Публикуване", role: "review", dot: "var(--bm-success-500)" },
+];
+
+// Етапният набор се определя от типа на съдържанието.
+export const stagesForType = (type: ContentType | undefined) =>
+  type === "post" ? POST_STAGES : PRODUCTION_STAGES;
+
+export const stageMeta = (key: string) =>
+  PRODUCTION_STAGES.find((s) => s.key === key) || POST_STAGES.find((s) => s.key === key) || PRODUCTION_STAGES[0];
 export const stageStatusMeta = (s: StageStatus) =>
   ({
     todo: { cls: "bm-badge--neutral", label: "Чакащо" },
@@ -263,10 +279,11 @@ export const stageStatusMeta = (s: StageStatus) =>
 export function defaultStages(
   team: TeamMember[],
   clientEditor: string,
-  fallback: string
+  fallback: string,
+  type?: ContentType
 ): StageState[] {
   const byRole = (role: string) => team.find((m) => (m.roles || []).includes(role))?.initials;
-  return PRODUCTION_STAGES.map((s) => {
+  return stagesForType(type).map((s) => {
     let assignee = "";
     if (s.role === "editor") assignee = clientEditor || byRole("editor") || fallback;
     else assignee = byRole(s.role) || fallback;

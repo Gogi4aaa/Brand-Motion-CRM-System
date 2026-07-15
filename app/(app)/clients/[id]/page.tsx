@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { CommentThread } from "@/components/CommentThread";
+import { BrandTab } from "@/components/BrandTab";
 import { clientsById, invStatusMeta, prioMeta, taskStatusLabel, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtK, fmtFull } from "@/lib/data";
 
 function Kpi({ label, value }: { label: string; value: React.ReactNode }) {
@@ -21,7 +22,7 @@ export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { clients, invoices, tasks, openModal, deleteClient, currentUser, team, clientConnections, setClientConnection } = useStore();
-  const [tab, setTab] = useState<"overview" | "invoices" | "tasks">("overview");
+  const [tab, setTab] = useState<"overview" | "brand" | "invoices" | "tasks">("overview");
 
   const byId = clientsById(clients);
   const c = byId[id] || clients[0];
@@ -36,7 +37,7 @@ export default function ClientDetailPage() {
     return { name: name as string, valStr: fmtFull(v), w: Math.min(100, Math.round((v / 9000) * 100)) };
   });
 
-  const TABS: ["overview" | "invoices" | "tasks", string][] = [["overview", "Преглед"], ["invoices", "Фактури"], ["tasks", "Задачи"]];
+  const TABS: ["overview" | "brand" | "invoices" | "tasks", string][] = [["overview", "Преглед"], ["brand", "Бранд"], ["invoices", "Фактури"], ["tasks", "Задачи"]];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
@@ -82,6 +83,8 @@ export default function ClientDetailPage() {
           <button key={k} className="bm-tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
+
+      {tab === "brand" && <BrandTab client={c} />}
 
       {tab === "invoices" && (
         <div className="bm-table-wrap">
