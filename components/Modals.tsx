@@ -9,6 +9,7 @@ import { CommentThread } from "./CommentThread";
 import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
+import { BrandSectionsView } from "./BrandTab";
 
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -57,7 +58,32 @@ export function Modals() {
   if (modal.kind === "cycle") return <CycleModal />;
   if (modal.kind === "idea") return <IdeaModal />;
   if (modal.kind === "brand") return <BrandProfileModal />;
+  if (modal.kind === "brandView") return <BrandViewModal />;
   return <InvoiceModal />;
+}
+
+// Read-only бранд профил за работниците (от Продукция) — те нямат достъп до
+// /clients/[id] (там има пари), но трябва да спазват бранда на клиента.
+function BrandViewModal() {
+  const { modal, closeModal, clients, brandProfiles } = useStore();
+  const clientId = modal?.kind === "brandView" ? modal.clientId : "";
+  const client = clients.find((c) => c.id === clientId);
+  const answers = brandProfiles.find((p) => p.client_id === clientId)?.answers;
+
+  return (
+    <Shell title={`Бранд профил — ${client?.name || ""}`} onClose={closeModal}>
+      <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)", maxHeight: "70dvh", overflowY: "auto" }}>
+        {answers ? (
+          <BrandSectionsView answers={answers} />
+        ) : (
+          <div className="bm-alert bm-alert--info">Бранд профилът на този клиент още не е попълнен. Питай админа/мениджъра да импортира въпросника.</div>
+        )}
+      </div>
+      <div className="bm-modal__footer">
+        <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Затвори</button>
+      </div>
+    </Shell>
+  );
 }
 
 // Бранд въпросникът на клиент: ръчна редакция на всички секции + импорт на
@@ -1027,10 +1053,10 @@ function ScriptImportModal() {
       <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
         {step === "upload" ? (
           <>
-            <div className="bm-alert bm-alert--info">Всяко видео трябва да започва със заглавие (Heading) в документа. Текстът след заглавието става сценарий на това видео.</div>
+            <div className="bm-alert bm-alert--info">{type === "post" ? "Всеки пост трябва да започва със заглавие — Heading стил или удебелен ред. Текстът след заглавието става „Текст на поста“." : "Всяко видео трябва да започва със заглавие — Heading стил, изцяло удебелен ред или ред „Видео 1 – …“. Текстът след заглавието става сценарий на това видео."}</div>
             <div className="bm-form-row">
               <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" value={clientId} onChange={(e) => setClientId(e.target.value)}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-              <div className="bm-field"><label className="bm-label">Тип съдържание</label><select className="bm-select" value={type} onChange={(e) => { const t = e.target.value as ContentType; setType(t); if (!stagesForType(t).some((st) => st.key === startStage)) setStartStage(stagesForType(t)[1].key); }}>{CONTENT_TYPES.filter((c) => c.id !== "post").map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
+              <div className="bm-field"><label className="bm-label">Тип съдържание</label><select className="bm-select" value={type} onChange={(e) => { const t = e.target.value as ContentType; setType(t); if (!stagesForType(t).some((st) => st.key === startStage)) setStartStage(stagesForType(t)[1].key); }}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
             </div>
             <div className="bm-field"><label className="bm-label">Започни от етап</label><select className="bm-select" value={startStage} onChange={(e) => setStartStage(e.target.value)}>{stagesForType(type).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Файл (.docx)</label><input className="bm-input" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>

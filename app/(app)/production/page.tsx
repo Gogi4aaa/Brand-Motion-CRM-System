@@ -58,8 +58,8 @@ export default function ProductionPage() {
         </div>
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
           <label className="bm-checkbox"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Моята работа</label>
-          <label className="bm-checkbox" title={`Публикуваните преди повече от ${BOARD_RETENTION_DAYS} дни се прибират от борда, но остават в клиентския портал`}>
-            <input type="checkbox" checked={showArchive} onChange={(e) => setShowArchive(e.target.checked)} /> Архив{archivedCount > 0 ? ` (${archivedCount})` : ""}
+          <label className="bm-checkbox" title={`Показва публикуваното отпреди повече от ${BOARD_RETENTION_DAYS} дни в колоната „Приключени“ (данните винаги остават в клиентския портал)`}>
+            <input type="checkbox" checked={showArchive} onChange={(e) => setShowArchive(e.target.checked)} /> Архив ({archivedCount})
           </label>
           {canImport && (
             <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "importScripts" })}>Импортирай сценарии</button>
@@ -68,6 +68,9 @@ export default function ProductionPage() {
             <option value="all">Всички клиенти</option>
             {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          {clientFilter !== "all" && (
+            <button className="bm-btn bm-btn--secondary" title="Цветове, тон на гласа и правила на този клиент" onClick={() => openModal({ kind: "brandView", clientId: clientFilter })}>Бранд</button>
+          )}
         </div>
       </div>
 

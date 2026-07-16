@@ -78,6 +78,7 @@ export type Modal =
   | { kind: "content"; mode: "edit"; item: ContentItem }
   | { kind: "importScripts" }
   | { kind: "brand"; clientId: string }
+  | { kind: "brandView"; clientId: string }
   | { kind: "createPosts" }
   | { kind: "cycle" }
   | { kind: "idea"; mode: "create" }
@@ -663,7 +664,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // history survives — or when the video has no open task yet. Pass
   // toStage=null to only close (final publish).
   const justCompletedTaskId = useRef<string | null>(null);
-  const syncStageTask = useCallback((itemId: string, title: string, clientId: string, toStage: string | null, assignee: string) => {
+  const syncStageTask = useCallback((itemId: string, title: string, clientId: string, toStage: string | null, assignee: string, kindLabel: string = "Видео") => {
     const completedId = justCompletedTaskId.current;
     justCompletedTaskId.current = null;
     // Derive from current state, not inside updaters — React may defer those.
@@ -678,7 +679,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
     if (!toStage || !assignee) { closeIds(open.map((t) => t.id)); return; }
 
-    const taskTitle = `Видео „${title || "(без заглавие)"}“ — ${stageMeta(toStage).label}`;
+    const taskTitle = `${kindLabel} „${title || "(без заглавие)"}“ — ${stageMeta(toStage).label}`;
     if (open.length) {
       // Reuse the live task; surplus duplicates (from older double-creates)
       // get swept: paid/valued ones close as done, worthless ones are deleted.
@@ -733,7 +734,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const { client_id: newClient, ...restRow } = row;
     setContentItems((list) => [...list, { ...restRow, client: newClient }]);
     sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] addContentItem failed:", error));
-    syncStageTask(row.id, f.title, clientId, "strategy", stages.find((s) => s.key === "strategy")?.assignee || "");
+    syncStageTask(row.id, f.title, clientId, "strategy", stages.find((s) => s.key === "strategy")?.assignee || "", f.type === "post" ? "Пост" : "Видео");
     logActivity(`планира съдържание „${f.title}“`);
     setModal(null);
   }, [clients, team, currentUser.initials, syncStageTask, logActivity]);
@@ -755,11 +756,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...s, assignee: stageAssignees?.[s.key] || s.assignee, status: (idx < ti ? "done" : idx === ti ? "doing" : "todo") as StageStatus };
       });
       // Линкът към суровия материал важи за цялата партида от този импорт.
-      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: notes || "", script: v.script, hook: v.hook || "", cta: v.cta || "", cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
+      // При пост парснатият текст (вкл. Hook/CTA секциите) отива в caption —
+      // „Текст на поста“; сценарийните полета остават празни.
+      const isPost = type === "post";
+      const postText = [v.hook, v.script, v.cta].filter(Boolean).join("\n\n");
+      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: notes || "", script: isPost ? "" : v.script, hook: isPost ? "" : v.hook || "", cta: isPost ? "" : v.cta || "", caption: isPost ? postText : "", cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
-    rows.forEach((r) => syncStageTask(r.id, r.title, clientId, r.current_stage, r.stages.find((s) => s.key === r.current_stage)?.assignee || ""));
+    rows.forEach((r) => syncStageTask(r.id, r.title, clientId, r.current_stage, r.stages.find((s) => s.key === r.current_stage)?.assignee || "", type === "post" ? "Пост" : "Видео"));
     logActivity(`импортира ${videos.length} сценария за ${client?.name || clientId}`);
     // Scripts are in → flip this client's open cycle into production.
     if (cycleId) advanceCycle(cycleId, "production");
@@ -935,7 +940,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Hand-off: tell whoever owns the stage it just moved into + surface it on
     // the team task board (closes the previous stage's task).
     const owner = nextStages.find((s) => s.key === toStage)?.assignee;
-    syncStageTask(itemId, item.title, item.client, toStage, owner || "");
+    syncStageTask(itemId, item.title, item.client, toStage, owner || "", item.type === "post" ? "Пост" : "Видео");
     if (owner) notify(owner, `Видео „${item.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(toStage).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
   }, [contentItems, team, currentUser.initials, syncStageTask, notify]);
 
@@ -968,7 +973,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         });
         if (assignee) notify(assignee, `Видео „${item.title || "(без заглавие)"}“ е при теб: ${stageMeta(stageKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
       } else if (assignee) {
-        syncStageTask(itemId, item.title, item.client, stageKey, assignee);
+        syncStageTask(itemId, item.title, item.client, stageKey, assignee, item.type === "post" ? "Пост" : "Видео");
       }
     }
   }, [contentItems, tasks, syncStageTask, notify, notifyError]);
@@ -1003,7 +1008,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         sb()?.from("tasks").update({ status: "done", progress: 100, done_at: doneAt }).eq("id", stageTask.id).then(({ error }) => error && console.error("[BrandMotion] stage task close failed:", error));
       }
       const to = isLast ? "" : stages.find((s) => s.key === nextKey)?.assignee || "";
-      syncStageTask(itemId, c.title, c.client, isLast ? null : nextKey, to);
+      syncStageTask(itemId, c.title, c.client, isLast ? null : nextKey, to, c.type === "post" ? "Пост" : "Видео");
       if (!isLast && to) notify(to, `Видео „${c.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(nextKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
       return;
     }

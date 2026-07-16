@@ -89,7 +89,17 @@ export function BrandTab({ client }: { client: Client }) {
         </div>
       )}
 
-      {profile && BRAND_SECTIONS.map((section) => {
+      {profile && <BrandSectionsView answers={answers} />}
+    </div>
+  );
+}
+
+// Read-only визуализация на попълнения въпросник — ползва се от таба „Бранд"
+// (админ) и от модала brandView, през който работниците я гледат от Продукция.
+export function BrandSectionsView({ answers }: { answers: BrandAnswers }) {
+  return (
+    <>
+      {BRAND_SECTIONS.map((section) => {
         const sectionFilled = section.questions.some((q) => hasBrandValue(answers[q.key]));
         return (
           <div key={section.key} className="bm-card">
@@ -106,6 +116,6 @@ export function BrandTab({ client }: { client: Client }) {
           </div>
         );
       })}
-    </div>
+    </>
   );
 }
