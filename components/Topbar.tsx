@@ -98,6 +98,9 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       </div>
       <div style={{ flex: 1 }} />
       <ThemeToggle />
+      <button className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => openModal({ kind: "password" })} aria-label="Смяна на парола" title="Смяна на парола" style={{ fontSize: 14 }}>
+        🔑
+      </button>
       <Notifications />
       <button className="bm-btn bm-btn--primary" onClick={() => openModal(invoiceHere ? { kind: "invoice", mode: "create" } : { kind: "task", mode: "create" })}>
         <Icon name="plus" /> <span className="bm-hide-xs">{invoiceHere ? "Нова фактура" : "Нова задача"}</span>

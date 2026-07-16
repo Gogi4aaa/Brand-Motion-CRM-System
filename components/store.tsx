@@ -79,6 +79,7 @@ export type Modal =
   | { kind: "brand"; clientId: string }
   | { kind: "brandView"; clientId: string }
   | { kind: "createPosts" }
+  | { kind: "password" }
   | { kind: "cycle" }
   | { kind: "idea"; mode: "create" }
   | { kind: "idea"; mode: "edit"; idea: Idea }
@@ -169,6 +170,9 @@ interface Store {
   updateMemberRoles: (memberId: string, roles: string[]) => void;
   updateMemberRole: (memberId: string, role: AccessRole) => void;
   updateMemberClients: (memberId: string, clientIds: string[]) => void;
+  deleteMember: (memberId: string) => void;
+  approveMember: (memberId: string) => void;
+  changePassword: (current: string, next: string) => Promise<string | null>;
   visibleClients: Client[];
   videoMetrics: VideoMetric[];
   saveVideoMetrics: (contentItemId: string, m: { platform: string; url: string; views: number; likes: number; comments: number; shares: number; source?: "manual" | "auto" }) => void;
@@ -263,7 +267,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
           sb.from("activity").select("*").order("created_at", { ascending: false }).limit(20),
-          sb.from("profiles").select("id, name, initials, role, roles, client_ids").order("created_at"),
+          sb.from("profiles").select("id, name, initials, role, roles, client_ids, approved, email").order("created_at"),
           sb.from("comments").select("*").order("created_at"),
           sb.from("leads").select("*").order("created_at"),
           sb.from("campaigns").select("*").order("created_at"),
@@ -1076,6 +1080,51 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateProfile(memberId, { client_ids: clientIds }, "достъп до клиенти");
   }, [updateProfile]);
 
+  // Смяна на парола: първо проверява текущата (someone-at-your-desk защита),
+  // после я обновява през Supabase Auth. Връща текст на грешка или null.
+  const changePassword = useCallback(async (current: string, next: string): Promise<string | null> => {
+    const client = sb();
+    if (!client) return "Няма връзка със сървъра.";
+    const { data: u } = await client.auth.getUser();
+    const email = u.user?.email;
+    if (!email) return "Няма активна сесия — влез отново.";
+    const { error: verifyErr } = await client.auth.signInWithPassword({ email, password: current });
+    if (verifyErr) return "Текущата парола е грешна.";
+    const { error } = await client.auth.updateUser({ password: next });
+    if (error) return error.message;
+    return null;
+  }, []);
+
+  // Одобрява чакаща регистрация: маркира профила и чак тогава изпраща
+  // валидиращия имейл (resend на signup потвърждението).
+  const approveMember = useCallback(async (memberId: string) => {
+    const m = team.find((x) => x.id === memberId);
+    if (!m) return;
+    setTeam((list) => list.map((x) => (x.id === memberId ? { ...x, approved: true } : x)));
+    updateProfile(memberId, { approved: true }, "одобрение на акаунт");
+    if (m.email) {
+      const { error } = await sb()!.auth.resend({ type: "signup", email: m.email });
+      if (error) notifyError("Акаунтът е одобрен, но валидиращият имейл не тръгна: " + error.message);
+    }
+    logActivity(`одобри акаунта на ${m.name}`, "admin");
+  }, [team, updateProfile, notifyError, logActivity]);
+
+  // Изтрива акаунта на потребител (auth + профил) — SECURITY DEFINER функция,
+  // която пуска само админ и никога самия него (миграция 0029).
+  const deleteMember = useCallback((memberId: string) => {
+    const name = team.find((m) => m.id === memberId)?.name || memberId;
+    sb()?.rpc("admin_delete_user", { p_user_id: memberId }).then(({ data, error }) => {
+      const err = error?.message || (data && !data.ok ? String(data.error) : "");
+      if (err) {
+        console.error("[BrandMotion] deleteMember failed:", err);
+        notifyError(`Акаунтът не се изтри: ${err === "not_admin" ? "само админ може" : err === "self" ? "не можеш да изтриеш себе си" : err}`);
+        return;
+      }
+      setTeam((list) => list.filter((m) => m.id !== memberId));
+      logActivity(`изтри акаунта на ${name}`, "admin");
+    });
+  }, [team, notifyError, logActivity]);
+
   // The clients THIS user is allowed to see — drives every client dropdown and
   // the calendar/production/ideas filtering.
   const me = team.find((m) => m.initials === currentUser.initials);
@@ -1302,7 +1351,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
-    advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, visibleClients,
+    advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,

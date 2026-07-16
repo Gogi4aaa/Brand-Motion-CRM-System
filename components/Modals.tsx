@@ -40,7 +40,7 @@ export function Modals() {
         <div className="bm-modal__body bm-text-muted">{modal.message}</div>
         <div className="bm-modal__footer">
           <button className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
-          <button className="bm-btn bm-btn--danger" onClick={modal.onConfirm}>{modal.confirmLabel}</button>
+          <button className="bm-btn bm-btn--danger" onClick={() => { modal.onConfirm(); closeModal(); }}>{modal.confirmLabel}</button>
         </div>
       </Shell>
     );
@@ -55,6 +55,7 @@ export function Modals() {
   if (modal.kind === "content") return <ContentModal />;
   if (modal.kind === "importScripts") return <ScriptImportModal />;
   if (modal.kind === "createPosts") return <PostsCreateModal />;
+  if (modal.kind === "password") return <PasswordModal />;
   if (modal.kind === "cycle") return <CycleModal />;
   if (modal.kind === "idea") return <IdeaModal />;
   if (modal.kind === "brand") return <BrandProfileModal />;
@@ -923,6 +924,53 @@ function ContentModal() {
           </div>
         </div>
       </form>
+    </Shell>
+  );
+}
+
+// Смяна на собствената парола: изисква текущата (защита срещу чужд достъп
+// до отключена сесия), нова 8+ знака, потвърждение.
+function PasswordModal() {
+  const { closeModal, changePassword } = useStore();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    setError("");
+    if (next.length < 8) { setError("Новата парола трябва да е поне 8 знака."); return; }
+    if (next !== again) { setError("Новата парола и повторението не съвпадат."); return; }
+    setBusy(true);
+    const err = await changePassword(current, next);
+    setBusy(false);
+    if (err) { setError(err); return; }
+    setDone(true);
+    setTimeout(closeModal, 1600);
+  };
+
+  return (
+    <Shell title="Смяна на парола" onClose={closeModal}>
+      <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
+        {done ? (
+          <div className="bm-alert bm-alert--success">Паролата е сменена успешно.</div>
+        ) : (
+          <>
+            <div className="bm-field"><label className="bm-label">Текуща парола</label><input className="bm-input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} /></div>
+            <div className="bm-field"><label className="bm-label">Нова парола (мин. 8 знака)</label><input className="bm-input" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} /></div>
+            <div className="bm-field"><label className="bm-label">Повтори новата парола</label><input className="bm-input" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></div>
+            {error && <div className="bm-alert bm-alert--danger">{error}</div>}
+          </>
+        )}
+      </div>
+      {!done && (
+        <div className="bm-modal__footer">
+          <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
+          <button type="button" className="bm-btn bm-btn--primary" disabled={busy || !current || !next || !again} onClick={submit}>{busy ? "Записване…" : "Смени паролата"}</button>
+        </div>
+      )}
     </Shell>
   );
 }

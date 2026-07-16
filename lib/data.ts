@@ -186,6 +186,8 @@ export interface TeamMember {
   role: AccessRole;
   roles?: string[]; // production role tags: strategy/script/camera/editor/review
   client_ids?: string[]; // clients this member may see (empty = role default)
+  approved?: boolean; // false = чака одобрение от админ (нова регистрация)
+  email?: string; // за валидиращия имейл при одобрение
 }
 
 // ---- Video production pipeline ----

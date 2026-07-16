@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // by design; access control is the unguessable token itself.
 // manifest.webmanifest и sw.js са публични — телефонът ги тегли без сесия
 // (инсталиране на app-а и web push регистрацията).
-const PUBLIC_PATHS = ["/login", "/review", "/api/review", "/portal", "/api/portal", "/manifest.webmanifest", "/sw.js"];
+const PUBLIC_PATHS = ["/login", "/reset-password", "/review", "/api/review", "/portal", "/api/portal", "/api/signup", "/manifest.webmanifest", "/sw.js"];
 
 /** Refreshes the Supabase session cookie and gates the app: signed-out users
  *  are redirected to /login; signed-in users hitting /login go to /dashboard. */

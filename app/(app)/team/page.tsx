@@ -10,7 +10,10 @@ const ROLE_HELP: Record<AccessRole, string> = {
 };
 
 export default function TeamPage() {
-  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients } = useStore();
+  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, deleteMember, approveMember, openModal } = useStore();
+  // Новите регистрации чакат одобрение; в основната таблица влизат само одобрените.
+  const pending = team.filter((m) => m.approved === false);
+  const members = team.filter((m) => m.approved !== false);
 
   const toggleRole = (memberId: string, roles: string[], roleId: string) => {
     const next = roles.includes(roleId) ? roles.filter((r) => r !== roleId) : [...roles, roleId];
@@ -39,11 +42,34 @@ export default function TeamPage() {
         </div>
       )}
 
+      {currentUser.isAdmin && pending.length > 0 && (
+        <div className="bm-card" style={{ border: "1px solid var(--bm-warning-500)" }}>
+          <div className="bm-card__header"><h3>Чакащи одобрение</h3><span className="bm-badge bm-badge--warning">{pending.length}</span></div>
+          <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+            {pending.map((m) => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap", borderBottom: "1px solid var(--bm-border)", paddingBottom: "var(--bm-space-3)" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span className="bm-avatar bm-avatar--sm">{m.initials}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", display: "block" }}>{m.name}</span>
+                    <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{m.email}</span>
+                  </span>
+                </span>
+                <span style={{ display: "flex", gap: "var(--bm-space-2)" }}>
+                  <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => approveMember(m.id)} title="Одобрява акаунта и изпраща валидиращия имейл">Одобри</button>
+                  <button className="bm-btn bm-btn--ghost bm-btn--sm" onClick={() => openModal({ kind: "confirm", title: "Отказване на заявка?", message: `Изтрий заявката на ${m.name} (${m.email})? Акаунтът се премахва завинаги.`, confirmLabel: "Изтрий", onConfirm: () => deleteMember(m.id) })}>Откажи</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bm-table-wrap">
         <table className="bm-table">
-          <thead><tr><th>Член</th><th>Ниво на достъп</th><th>Роли в продукция</th>{currentUser.isAdmin && <th>Достъп до клиенти</th>}<th className="bm-table__num">Отворени задачи</th></tr></thead>
+          <thead><tr><th>Член</th><th>Ниво на достъп</th><th>Роли в продукция</th>{currentUser.isAdmin && <th>Достъп до клиенти</th>}<th className="bm-table__num">Отворени задачи</th>{currentUser.isAdmin && <th />}</tr></thead>
           <tbody>
-            {team.map((m) => {
+            {members.map((m) => {
               const open = tasks.filter((t) => t.assignee === m.initials && t.status !== "done").length;
               const isMe = m.initials === currentUser.initials;
               return (
@@ -101,10 +127,21 @@ export default function TeamPage() {
                   </td>
                   )}
                   <td className="bm-table__num">{open}</td>
+                  {currentUser.isAdmin && (
+                    <td style={{ textAlign: "right" }}>
+                      {!isMe && (
+                        <button
+                          className="bm-btn bm-btn--ghost bm-btn--sm"
+                          title="Изтрива акаунта завинаги — за нежелани регистрации"
+                          onClick={() => openModal({ kind: "confirm", title: "Изтриване на акаунт?", message: `Изтрий акаунта на ${m.name}? Той няма да може да влиза повече. Действието е необратимо.`, confirmLabel: "Изтрий акаунта", onConfirm: () => deleteMember(m.id) })}
+                        >Премахни</button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
-            {team.length === 0 && <tr><td colSpan={currentUser.isAdmin ? 5 : 4} style={{ textAlign: "center", color: "var(--bm-text-subtle)", padding: "var(--bm-space-8)" }}>Все още няма членове.</td></tr>}
+            {members.length === 0 && <tr><td colSpan={currentUser.isAdmin ? 6 : 4} style={{ textAlign: "center", color: "var(--bm-text-subtle)", padding: "var(--bm-space-8)" }}>Все още няма членове.</td></tr>}
           </tbody>
         </table>
       </div>
