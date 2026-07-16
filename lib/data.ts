@@ -139,22 +139,6 @@ export const campaignStatusMeta = (s: CampaignStatus) =>
     completed: { cls: "bm-badge--neutral", label: "Завършена" },
   }[s]);
 
-export const fmtDuration = (sec: number) => {
-  if (!sec) return "0m";
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  return h ? `${h}h ${m}m` : `${m}m`;
-};
-
-export const OWNERS: Record<string, string> = {
-  AK: "Anna Klein",
-  ML: "Marco Lopez",
-  JD: "Jamie Doe",
-  SR: "Sara Rivera",
-};
-
-export type Role = "admin" | "member";
-
 // ---- Access levels (RBAC) ----
 export type AccessRole = "admin" | "manager" | "worker";
 

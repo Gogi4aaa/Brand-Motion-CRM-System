@@ -31,7 +31,7 @@ function Err({ msg }: { msg?: string }) {
 
 export function Modals() {
   const store = useStore();
-  const { modal, closeModal, clients } = store;
+  const { modal, closeModal } = store;
   if (!modal) return null;
 
   if (modal.kind === "confirm") {

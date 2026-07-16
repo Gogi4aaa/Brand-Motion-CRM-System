@@ -20,7 +20,6 @@ import {
   ONBOARDING_TASKS,
   CONTENT_PACKAGES,
   packageItemCount,
-  contentTypeMeta,
   cyclePhaseMeta,
   monthKey,
   monthLabel,
@@ -52,7 +51,7 @@ import {
   type ChannelProvider,
   type VideoMetric,
 } from "@/lib/data";
-import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, CycleForm, IdeaForm } from "@/lib/schemas";
+import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, IdeaForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
 import { brandValueToText, type BrandAnswers, type BrandProfile } from "@/lib/brand";
 
@@ -87,6 +86,33 @@ export type Modal =
   | null;
 
 const DEFAULT_USER: CurrentUser = { name: "Georgi D.", initials: "GD", role: "Администратор", isAdmin: true, level: "admin" };
+
+// Кратък двутонов сигнал при ново известие (камбанката). Web Audio — без
+// аудио файл; браузърът може да го заглуши, ако страницата няма нито едно
+// взаимодействие (autoplay policy) — тогава просто мълчи.
+function playChime() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const t = ctx.currentTime;
+    const tone = (freq: number, start: number) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t + start);
+      g.gain.exponentialRampToValueAtTime(0.12, t + start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + start + 0.45);
+      o.connect(g).connect(ctx.destination);
+      o.start(t + start);
+      o.stop(t + start + 0.5);
+    };
+    tone(880, 0);
+    tone(1174.66, 0.12);
+    setTimeout(() => { ctx.close().catch(() => {}); }, 900);
+  } catch { /* блокиран звук — тихо известие */ }
+}
 
 interface Store {
   clients: Client[];
@@ -334,7 +360,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .channel("notif-" + me)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `recipient=eq.${me}` }, (payload) => {
         const n = payload.new as NotificationItem;
-        setNotifications((list) => (list.some((x) => x.id === n.id) ? list : [n, ...list]));
+        setNotifications((list) => {
+          if (list.some((x) => x.id === n.id)) return list;
+          playChime();
+          return [n, ...list];
+        });
       })
       .subscribe();
     return () => { cancelled = true; client.removeChannel(ch); };
@@ -561,7 +591,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     logActivity(`включи клиент ${f.name} · ${taskRows.length} задачи`, "admin");
     setModal(null);
-  }, [leads, clients, team, currentUser.initials, startCycle, logActivity]);
+  }, [leads, clients, currentUser.initials, startCycle, logActivity]);
 
   // ---- Campaigns ----
   const addCampaign = useCallback((f: CampaignForm) => {
@@ -920,10 +950,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [clients, logActivity, notifyError]);
 
   // ---- Production pipeline ----
-  const persistItem = (id: string, patch: Record<string, unknown>) =>
+  const persistItem = useCallback((id: string, patch: Record<string, unknown>) =>
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] content update failed:", error); notifyError("Промяната по видеото не се запази: " + error.message); }
-    });
+    }), [notifyError]);
 
   const advanceStage = useCallback((itemId: string, toStage: string) => {
     const item = contentItems.find((c) => c.id === itemId);
@@ -942,7 +972,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const owner = nextStages.find((s) => s.key === toStage)?.assignee;
     syncStageTask(itemId, item.title, item.client, toStage, owner || "", item.type === "post" ? "Пост" : "Видео");
     if (owner) notify(owner, `Видео „${item.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(toStage).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
-  }, [contentItems, team, currentUser.initials, syncStageTask, notify]);
+  }, [contentItems, team, currentUser.initials, syncStageTask, notify, persistItem]);
 
   // Влачене в колоната „Приключени“: маркира видеото публикувано и затваря
   // отворените му таскове (без нов етап). Гейтва се от UI-то (canPublish).
@@ -954,7 +984,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     persistItem(itemId, { published: true, published_at: publishedAt, current_stage: "publish" });
     syncStageTask(itemId, item.title, item.client, null, "");
     logActivity(`приключи видео „${item.title || itemId}“`);
-  }, [contentItems, syncStageTask, logActivity]);
+  }, [contentItems, syncStageTask, logActivity, persistItem]);
 
   const setStageAssignee = useCallback((itemId: string, stageKey: string, assignee: string) => {
     const item = contentItems.find((c) => c.id === itemId);
@@ -976,7 +1006,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         syncStageTask(itemId, item.title, item.client, stageKey, assignee, item.type === "post" ? "Пост" : "Видео");
       }
     }
-  }, [contentItems, tasks, syncStageTask, notify, notifyError]);
+  }, [contentItems, tasks, syncStageTask, notify, notifyError, persistItem]);
 
   const setStageStatus = useCallback((itemId: string, stageKey: string, status: StageStatus) => {
     const c = contentItems.find((x) => x.id === itemId);
@@ -1016,7 +1046,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const stages = (c.stages || []).map((s) => (s.key === stageKey ? { ...s, status } : s));
     setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, stages } : x)));
     persistItem(itemId, { stages });
-  }, [contentItems, tasks, syncStageTask, notify]);
+  }, [contentItems, tasks, syncStageTask, notify, persistItem]);
 
   // Profile edits go through RLS: without the "profiles admin update" policy
   // (migration 0020) an admin's update of ANOTHER member matches 0 rows and

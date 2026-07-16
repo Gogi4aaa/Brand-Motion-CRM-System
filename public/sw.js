@@ -3,7 +3,7 @@
 
 self.addEventListener("push", (event) => {
   let data = {};
-  try { data = event.data ? event.data.json() : {}; } catch (e) { /* ignore */ }
+  try { data = event.data ? event.data.json() : {}; } catch { /* ignore */ }
   const title = data.title || "BrandMotion";
   const body = data.body || "";
   const link = data.link || "/production";

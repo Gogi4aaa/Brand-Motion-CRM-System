@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { ContentCalendar } from "@/components/ContentCalendar";
-import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, CYCLE_PHASES, cyclePhaseMeta, monthLabel } from "@/lib/data";
+import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, CYCLE_PHASES, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
   const { contentItems, clients, cycles, currentUser, advanceStage, completeVideo, advanceCycle, openModal, visibleClients, team } = useStore();
@@ -115,8 +115,8 @@ export default function ProductionPage() {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
         <div className="bm-tabs" style={{ border: "none" }}>
-          <button className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
-          <button className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
+          <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
+          <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
         </div>
         {boardTab === "posts" && (canImport || myRoles.includes("posts")) && (
           <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => openModal({ kind: "createPosts" })}>+ Нови постове</button>

@@ -32,8 +32,8 @@ export default function SocialPage() {
       </div>
 
       <div className="bm-tabs">
-        <button className="bm-tab" aria-selected={tab === "posts"} onClick={() => setTab("posts")}>Публикации</button>
-        {currentUser.isAdmin && <button className="bm-tab" aria-selected={tab === "accounts"} onClick={() => setTab("accounts")}>Свързани акаунти</button>}
+        <button role="tab" className="bm-tab" aria-selected={tab === "posts"} onClick={() => setTab("posts")}>Публикации</button>
+        {currentUser.isAdmin && <button role="tab" className="bm-tab" aria-selected={tab === "accounts"} onClick={() => setTab("accounts")}>Свързани акаунти</button>}
       </div>
 
       {tab === "posts" && (

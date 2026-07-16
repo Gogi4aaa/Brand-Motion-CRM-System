@@ -62,7 +62,7 @@ export default function InvoicesPage() {
         <div className="bm-card__header" style={{ paddingBottom: 0, borderBottom: "none" }}>
           <div className="bm-tabs" style={{ border: "none" }}>
             {TABS.map(([k, l]) => (
-              <button key={k} className="bm-tab" aria-selected={filter === k} onClick={() => setFilter(k)}>{l}</button>
+              <button key={k} role="tab" className="bm-tab" aria-selected={filter === k} onClick={() => setFilter(k)}>{l}</button>
             ))}
           </div>
         </div>

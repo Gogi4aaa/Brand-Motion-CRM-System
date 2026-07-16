@@ -47,8 +47,8 @@ export default function CampaignsPage() {
       </div>
 
       <div className="bm-tabs">
-        <button className="bm-tab" aria-selected={tab === "campaigns"} onClick={() => setTab("campaigns")}>Кампании</button>
-        <button className="bm-tab" aria-selected={tab === "ads"} onClick={() => setTab("ads")}>Реклами</button>
+        <button role="tab" className="bm-tab" aria-selected={tab === "campaigns"} onClick={() => setTab("campaigns")}>Кампании</button>
+        <button role="tab" className="bm-tab" aria-selected={tab === "ads"} onClick={() => setTab("ads")}>Реклами</button>
       </div>
 
       {tab === "campaigns" && (
@@ -59,7 +59,7 @@ export default function CampaignsPage() {
             <Kpi label="Общ управляван бюджет" value={fmtK(budget)} delta="всички кампании" />
           </section>
           <div className="bm-tabs" style={{ border: "none" }}>
-            {FILTERS.map(([k, l]) => <button key={k} className="bm-tab" aria-selected={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
+            {FILTERS.map(([k, l]) => <button key={k} role="tab" className="bm-tab" aria-selected={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "var(--bm-space-4)" }}>
             {shown.map((c) => {

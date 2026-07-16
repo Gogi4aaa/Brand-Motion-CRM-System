@@ -80,7 +80,7 @@ export default function ClientDetailPage() {
 
       <div className="bm-tabs">
         {TABS.map(([k, l]) => (
-          <button key={k} className="bm-tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
+          <button key={k} role="tab" className="bm-tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
 

@@ -105,7 +105,7 @@ export default function DashboardPage() {
         {showTeamOps && (
           <div className="bm-tabs" style={{ border: "none" }}>
             {PERIODS.map((p) => (
-              <button key={p.key} className="bm-tab" aria-selected={period === p.key} onClick={() => setPeriod(p.key)}>{p.label}</button>
+              <button key={p.key} role="tab" className="bm-tab" aria-selected={period === p.key} onClick={() => setPeriod(p.key)}>{p.label}</button>
             ))}
           </div>
         )}

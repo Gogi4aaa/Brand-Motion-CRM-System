@@ -3,7 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // /review, /portal + their APIs are the client-facing token pages — public
 // by design; access control is the unguessable token itself.
-const PUBLIC_PATHS = ["/login", "/review", "/api/review", "/portal", "/api/portal"];
+// manifest.webmanifest и sw.js са публични — телефонът ги тегли без сесия
+// (инсталиране на app-а и web push регистрацията).
+const PUBLIC_PATHS = ["/login", "/review", "/api/review", "/portal", "/api/portal", "/manifest.webmanifest", "/sw.js"];
 
 /** Refreshes the Supabase session cookie and gates the app: signed-out users
  *  are redirected to /login; signed-in users hitting /login go to /dashboard. */
