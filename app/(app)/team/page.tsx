@@ -41,7 +41,7 @@ export default function TeamPage() {
 
       <div className="bm-table-wrap">
         <table className="bm-table">
-          <thead><tr><th>Член</th><th>Ниво на достъп</th><th>Роли в продукция</th><th>Достъп до клиенти</th><th className="bm-table__num">Отворени задачи</th></tr></thead>
+          <thead><tr><th>Член</th><th>Ниво на достъп</th><th>Роли в продукция</th>{currentUser.isAdmin && <th>Достъп до клиенти</th>}<th className="bm-table__num">Отворени задачи</th></tr></thead>
           <tbody>
             {team.map((m) => {
               const open = tasks.filter((t) => t.assignee === m.initials && t.status !== "done").length;
@@ -80,6 +80,7 @@ export default function TeamPage() {
                       {!currentUser.isAdmin && (m.roles || []).length === 0 && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>—</span>}
                     </div>
                   </td>
+                  {currentUser.isAdmin && (
                   <td>
                     {m.role === "admin" ? (
                       <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>всички</span>
@@ -98,11 +99,12 @@ export default function TeamPage() {
                       </div>
                     )}
                   </td>
+                  )}
                   <td className="bm-table__num">{open}</td>
                 </tr>
               );
             })}
-            {team.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--bm-text-subtle)", padding: "var(--bm-space-8)" }}>Все още няма членове.</td></tr>}
+            {team.length === 0 && <tr><td colSpan={currentUser.isAdmin ? 5 : 4} style={{ textAlign: "center", color: "var(--bm-text-subtle)", padding: "var(--bm-space-8)" }}>Все още няма членове.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -177,7 +177,7 @@ export default function TasksPage() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "var(--bm-space-1)" }}>
                       <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{byId[t.client]?.name}</span>
-                        {t.visibility === "private" ? <span style={{ flexShrink: 0 }} title={t.content_item_id ? "Виждат я само изпълнителят, админът и мениджърът" : "Виждате я само ти и админът"}>🔒</span> : null}
+                        {t.visibility === "private" ? <span style={{ flexShrink: 0 }} title="Лична задача — виждат я само изпълнителят и админът">🔒</span> : null}
                         {(currentUser.isAdmin || t.assignee === currentUser.initials) && (t.pay_amount || 0) > 0 ? (
                           <span style={{ flexShrink: 0, fontWeight: 600, color: t.paid ? "var(--bm-success-600)" : "var(--bm-text-muted)" }}>· {fmtFull(t.pay_amount || 0)}{t.paid ? " ✓" : ""}</span>
                         ) : null}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
-import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor } from "@/lib/data";
+import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor, inCurrentMonth } from "@/lib/data";
 
 type Period = "today" | "week" | "month";
 const PERIODS: { key: Period; label: string; word: string }[] = [
@@ -50,7 +50,10 @@ function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.Re
 }
 
 export default function DashboardPage() {
-  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead } = useStore();
+  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead, visibleClients } = useStore();
+  // Мениджърските числа се смятат само по клиентите, до които има достъп.
+  const visibleIds = new Set(visibleClients.map((c) => c.id));
+  const scopedItems = contentItems.filter((c) => visibleIds.has(c.client));
   const byId = clientsById(clients);
   const firstName = currentUser.name.split(" ")[0] || "колега";
   // Money (invoices, суми) is strictly the admin's; managers get the ops view
@@ -118,9 +121,9 @@ export default function DashboardPage() {
           </>
         ) : showTeamOps ? (
           <>
-            <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-text-subtle" delta="в работа" />
+            <Kpi label="Публикувани този месец" value={scopedItems.filter((c) => c.published && inCurrentMonth(c.published_at)).length} deltaCls="bm-stat__delta--up" delta="видеа и постове" />
             <Kpi label="Отворени задачи" value={openTasks.length} deltaCls="bm-text-subtle" delta="по целия екип" />
-            <Kpi label="Видеа в продукция" value={contentItems.filter((c) => !c.published).length} deltaCls="bm-text-subtle" delta="по етапите" />
+            <Kpi label="В продукция" value={scopedItems.filter((c) => !c.published).length} deltaCls="bm-text-subtle" delta="видеа и постове по етапите" />
             <Kpi label="Членове на екипа" value={team.length} deltaCls="bm-text-subtle" delta="активни" />
           </>
         ) : (

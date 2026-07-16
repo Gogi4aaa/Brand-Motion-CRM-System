@@ -86,12 +86,10 @@ export interface VideoMetric {
   updated_at?: string;
 }
 
-// Private tasks are between the admin and the assignee; everything else is team-wide.
-// Production handoff tasks (content_item_id set) stay visible to managers too —
-// they distribute the stage work, so they keep oversight of the whole chain.
+// Private tasks are strictly between the admin and the assignee — managers see
+// only team-visible tasks (те следят продукцията от борда, не от чуждите таскове).
 export const canSeeTask = (t: Task, level: AccessRole, initials: string) =>
-  t.visibility !== "private" || level === "admin" || t.assignee === initials ||
-  (level === "manager" && !!t.content_item_id);
+  t.visibility !== "private" || level === "admin" || t.assignee === initials;
 
 // Which clients this member may see. Empty list: workers see nothing until the
 // admin assigns clients; managers keep full visibility (back-compat); admins all.
