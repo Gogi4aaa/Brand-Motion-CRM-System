@@ -15,7 +15,15 @@ export default function RootLayout({
   // design system's fonts.css, so no next/font is needed.
   return (
     <html lang="bg" data-theme="light" suppressHydrationWarning>
-      <body className="bm">{children}</body>
+      <body className="bm">
+        {/* Прилага запомнената тема ПРЕДИ първото изчертаване — без светло премигване. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("bm-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);}catch(e){}`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

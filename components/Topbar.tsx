@@ -69,6 +69,8 @@ function ThemeToggle() {
     const el = document.documentElement;
     const next = el.getAttribute("data-theme") === "dark" ? "light" : "dark";
     el.setAttribute("data-theme", next);
+    // Изборът се помни за следващото зареждане (прилага се от скрипта в layout-а).
+    try { localStorage.setItem("bm-theme", next); } catch { /* private mode */ }
   };
   return (
     <button className="bm-btn bm-btn--ghost bm-btn--icon" onClick={toggle} aria-label="Смени тема" title="Смени тема">

@@ -56,7 +56,9 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
   const pubOk = (c: { published?: boolean }) => pubFilter === "all" || (pubFilter === "published" ? c.published : !c.published);
   const itemsFor = (date: string) =>
     contentItems.filter((c) => matches(c) && c.date === date && pubOk(c));
-  const backlog = contentItems.filter((c) => matches(c) && !c.date && pubOk(c));
+  // Публикуваното няма какво да чака насрочване — излиза от „Непланирани“
+  // (ако има дата, то си стои на нея в решетката като ✓).
+  const backlog = contentItems.filter((c) => matches(c) && !c.date && !c.published && pubOk(c));
   // Заглавие на чип: в общ изглед се показват и инициалите на клиента.
   const chipTitle = (it: { title: string; client: string }) => (allMode ? `${byId[it.client]?.initials || "?"} · ${it.title}` : it.title);
   // Mobile agenda: only the month's days that have content, in order.
