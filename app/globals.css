@@ -165,9 +165,15 @@ a {
 
 /* Content calendar (shared component): full grid on desktop; on phones the
    cells shrink to dots and the per-day agenda list below carries the titles. */
-.cc-cell { min-height: 110px; padding: var(--bm-space-2); border-right: 1px solid var(--bm-border); border-bottom: 1px solid var(--bm-border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; background: var(--bm-surface); }
+/* min-width: 0 lets the 1fr grid columns hold their width — without it a long
+   video title (a chip with nowrap) forces the cell to grow and blows the whole
+   calendar out of shape; overflow: hidden keeps the ellipsis clipping to the cell. */
+.cc-cell { min-width: 0; min-height: 110px; padding: var(--bm-space-2); border-right: 1px solid var(--bm-border); border-bottom: 1px solid var(--bm-border); cursor: pointer; display: flex; flex-direction: column; gap: 4px; background: var(--bm-surface); overflow: hidden; }
 .cc-cell--empty { background: var(--bm-slate-100); cursor: default; }
 .cc-cell--today { background: var(--bm-brand-50); }
+/* Chips are flex children of the cell; min-width: 0 lets them shrink so the
+   text-overflow: ellipsis on each chip actually kicks in. */
+.cc-ev { min-width: 0; max-width: 100%; }
 .cc-dots { display: none; }
 .cc-agenda { display: none; }
 @media (max-width: 768px) {

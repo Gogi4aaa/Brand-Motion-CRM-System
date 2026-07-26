@@ -110,7 +110,7 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => onDropDay(null)}
-            style={{ flex: "0 0 250px", maxWidth: "100%", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", minHeight: 320 }}
+            style={{ flex: "0 0 250px", minWidth: 0, maxWidth: "100%", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", minHeight: 320 }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>Непланирани видеа</div>
@@ -134,7 +134,7 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
                     onDragStart={canSchedule ? () => setDragId(it.id) : undefined}
                     onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
                     title={allMode ? `${byId[it.client]?.name || ""} — ${it.title}` : it.title}
-                    style={{ cursor: "grab", borderLeft: `3px solid ${m.fg}`, background: m.bg, color: m.fg, borderRadius: "var(--bm-radius-sm)", padding: "6px 8px", fontSize: "var(--bm-text-xs)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    style={{ cursor: "grab", minWidth: 0, maxWidth: "100%", borderLeft: `3px solid ${m.fg}`, background: m.bg, color: m.fg, borderRadius: "var(--bm-radius-sm)", padding: "6px 8px", fontSize: "var(--bm-text-xs)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   >
                     {chipTitle(it)}
                   </div>

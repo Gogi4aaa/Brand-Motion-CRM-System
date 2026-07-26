@@ -107,6 +107,9 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
   // Контент календар: месечна решетка с заглавията на видеата за избрания
   // месец (данните вече идват ограничени до този клиент от portal_get).
   const [monthOff, setMonthOff] = useState(0);
+  // Тапнат ден: на телефон решетката показва само точки, а тук се отваря
+  // изскачащ прозорец с видеата за деня (вместо дълъг списък под календара).
+  const [dayView, setDayView] = useState<number | null>(null);
   const now = new Date();
   const y = new Date(now.getFullYear(), now.getMonth() + monthOff, 1).getFullYear();
   const m = new Date(now.getFullYear(), now.getMonth() + monthOff, 1).getMonth();
@@ -169,19 +172,31 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
         .pt-mnav { display: flex; align-items: center; gap: 10px; }
         .pt-mnav button { border: 1px solid var(--bm-border); background: var(--bm-surface); border-radius: 8px; width: 28px; height: 28px; cursor: pointer; font-weight: 700; color: var(--bm-text-muted); }
         .pt-mnav button:hover { background: var(--bm-surface-2); }
+        .pt-grid__cell--has { cursor: pointer; }
+        /* Точките се показват само на телефон; на десктоп клетките носят заглавията.
+           Дефолтът трябва да е ПРЕДИ media-заявката, иначе с еднаква специфичност
+           по-долното правило печели и точките изчезват и на телефон. */
+        .pt-grid__dots { display: none; }
+        .pt-grid__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bm-brand-500); }
+        .pt-grid__dot--done { background: var(--bm-success-500); }
         @media (max-width: 600px) {
           .pt-grid__cell { min-height: 44px; }
           .pt-ev { display: none; }
-          .pt-grid__dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
+          .pt-grid__dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin-top: auto; }
         }
-        .pt-grid__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bm-brand-500); }
-        .pt-grid__dot--done { background: var(--bm-success-500); }
-        .pt-grid__dots { display: none; }
-        .pt-agenda { display: none; }
-        @media (max-width: 600px) { .pt-agenda { display: flex; flex-direction: column; gap: 10px; } }
-        .pt-cal { display: flex; flex-direction: column; gap: 10px; }
-        .pt-cal__row { display: flex; align-items: center; gap: 14px; }
-        .pt-cal__date { flex-shrink: 0; width: 72px; text-align: center; background: var(--bm-brand-50); color: var(--bm-brand-700); border: 1px solid var(--bm-brand-500); border-radius: var(--bm-radius-md); padding: 6px 4px; font-weight: 700; font-size: var(--bm-text-xs); }
+        /* Подсказката „тапни ден“ е нужна само там, където клетките са точки. */
+        .pt-cal__hint { display: none; }
+        @media (max-width: 600px) { .pt-cal__hint { display: block; } }
+        /* Изскачащ прозорец „видеа за деня“. */
+        .pt-dv { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: flex; align-items: flex-end; justify-content: center; padding: var(--bm-space-4); z-index: 50; }
+        @media (min-width: 601px) { .pt-dv { align-items: center; } }
+        .pt-dv__box { background: var(--bm-surface); border-radius: var(--bm-radius-xl); box-shadow: var(--bm-shadow-lg, var(--bm-shadow-md)); width: 100%; max-width: 460px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+        .pt-dv__head { padding: var(--bm-space-4) var(--bm-space-5); border-bottom: 1px solid var(--bm-border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .pt-dv__head h3 { margin: 0; font-size: var(--bm-text-base); text-transform: capitalize; }
+        .pt-dv__head button { border: none; background: var(--bm-surface-2); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-weight: 700; color: var(--bm-text-muted); flex-shrink: 0; }
+        .pt-dv__body { padding: var(--bm-space-4) var(--bm-space-5); display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        .pt-dv__ev { border-left: 3px solid var(--bm-brand-500); background: var(--bm-brand-50); border-radius: var(--bm-radius-md); padding: 10px 12px; }
+        .pt-dv__ev--done { border-left-color: var(--bm-success-500); background: var(--bm-success-50); }
         .pt-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; background: var(--bm-surface-2); border-radius: var(--bm-radius-lg); padding: var(--bm-space-3); }
         .pt-pay { border-radius: var(--bm-radius-xl); padding: var(--bm-space-5); background: linear-gradient(135deg, var(--bm-warning-50), var(--bm-surface)); border: 1px solid var(--bm-warning-500); display: flex; flex-direction: column; gap: 6px; box-shadow: var(--bm-shadow-md); }
         .pt-invrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--bm-border); font-size: var(--bm-text-sm); }
@@ -252,7 +267,11 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                     const iso = `${ymKey}-${String(day).padStart(2, "0")}`;
                     const dayItems = byDay.get(day) || [];
                     return (
-                      <div key={iso} className={"pt-grid__cell" + (iso === todayIso ? " pt-grid__cell--today" : "")}>
+                      <div
+                        key={iso}
+                        className={"pt-grid__cell" + (iso === todayIso ? " pt-grid__cell--today" : "") + (dayItems.length ? " pt-grid__cell--has" : "")}
+                        onClick={dayItems.length ? () => setDayView(day) : undefined}
+                      >
                         <div className="pt-grid__day">{day}</div>
                         {dayItems.map((it) => (
                           <div key={it.id} className={"pt-ev" + (it.published ? " pt-ev--done" : "")} title={it.title}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
@@ -266,21 +285,10 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                     );
                   })}
                 </div>
-                {/* На телефон решетката показва точки, а заглавията са в списък отдолу */}
-                <div className="pt-agenda">
-                  {monthAgenda.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма планирани видеа за {MONTHS[m]}.</p>}
-                  {monthAgenda.map((it) => (
-                    <div key={it.id} className="pt-cal__row">
-                      <span className="pt-cal__date">{fmtDay(it.date!)}</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
-                        <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{TYPE_LABELS[it.type] || it.type} · {it.published ? "публикувано" : `сега: ${STAGE_LABELS[it.current_stage] || it.current_stage}`}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                {/* На телефон решетката показва точки; тап на ден отваря видеата за него. */}
+                <p className="pt-cal__hint bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>Тапни ден с точки, за да видиш видеата за него.</p>
                 {monthAgenda.length === 0 && (
-                  <p className="bm-text-subtle bm-hide-mobile" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма планирани видеа за {MONTHS[m]} — разгледай съседните месеци със стрелките.</p>
+                  <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма планирани видеа за {MONTHS[m]} — разгледай съседните месеци със стрелките.</p>
                 )}
               </div>
             </div>
@@ -368,6 +376,26 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
             <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", textAlign: "center" }}>
               Страницата се обновява автоматично с напредъка на екипа. При въпроси — просто ни пишете. 💙
             </p>
+
+            {/* Изскачащ прозорец с видеата за тапнатия ден (телефон). */}
+            {dayView !== null && (
+              <div className="pt-dv" onClick={(e) => { if (e.target === e.currentTarget) setDayView(null); }}>
+                <div className="pt-dv__box">
+                  <div className="pt-dv__head">
+                    <h3>{dayView} {MONTHS[m]} · видеа за деня</h3>
+                    <button type="button" aria-label="Затвори" onClick={() => setDayView(null)}>✕</button>
+                  </div>
+                  <div className="pt-dv__body">
+                    {(byDay.get(dayView) || []).map((it) => (
+                      <div key={it.id} className={"pt-dv__ev" + (it.published ? " pt-dv__ev--done" : "")}>
+                        <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
+                        <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{TYPE_LABELS[it.type] || it.type} · {it.published ? "публикувано" : `сега: ${STAGE_LABELS[it.current_stage] || it.current_stage}`}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
