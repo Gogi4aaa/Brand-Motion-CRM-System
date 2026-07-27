@@ -247,6 +247,15 @@ body.bm {
 .bm-alert--warning { background: var(--bm-warning-50); border-color: var(--bm-warning-500); color: var(--bm-warning-700); }
 .bm-alert--danger  { background: var(--bm-danger-50);  border-color: var(--bm-danger-500);  color: var(--bm-danger-700); }
 
+/* ---- Night-mode fixups --------------------------------------------------
+   The danger button uses --bm-danger-600/700 as its BACKGROUND, but in dark
+   mode those tokens go light (they double as status text). Pin it to a solid
+   red here so white text stays readable. Neutral badge text also needs the
+   muted colour on the darkened slate-100 tint. */
+:root[data-theme="dark"] .bm-btn--danger { background: #DC2626; color: #fff; }
+:root[data-theme="dark"] .bm-btn--danger:hover:not(:disabled) { background: #B91C1C; }
+:root[data-theme="dark"] .bm-badge--neutral { color: var(--bm-text-muted); }
+
 /* ---- Modal -------------------------------------------------------------- */
 .bm-modal-overlay {
   position: fixed; inset: 0; z-index: var(--bm-z-modal);

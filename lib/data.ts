@@ -488,8 +488,8 @@ export function driveThumbnailSrc(url: string | undefined, width = 400): string 
 export const CONTENT_TYPES: { id: ContentType; label: string; bg: string; fg: string }[] = [
   { id: "promo", label: "Промо", bg: "var(--bm-warning-50)", fg: "var(--bm-warning-700)" },
   { id: "info", label: "Инфо", bg: "var(--bm-success-50)", fg: "var(--bm-success-700)" },
-  { id: "reel", label: "Рийл", bg: "#E0F2F1", fg: "#00637E" },
-  { id: "project", label: "Реализиран проект", bg: "#FCE7F0", fg: "#9D2667" },
+  { id: "reel", label: "Рийл", bg: "var(--bm-ct-reel-bg)", fg: "var(--bm-ct-reel-fg)" },
+  { id: "project", label: "Реализиран проект", bg: "var(--bm-ct-project-bg)", fg: "var(--bm-ct-project-fg)" },
   { id: "post", label: "Пост", bg: "var(--bm-info-50)", fg: "var(--bm-info-700)" },
 ];
 export const contentTypeMeta = (t: ContentType) =>

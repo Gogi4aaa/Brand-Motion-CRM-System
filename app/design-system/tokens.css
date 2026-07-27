@@ -72,6 +72,13 @@
   --bm-primary-active:var(--bm-brand-700);
   --bm-focus-ring:    var(--bm-brand-400);
 
+  /* Content-type chip colours (Промо/Инфо/Пост map to status tints; Рийл/Проект
+     are custom hues). Defined as tokens so they can go dark in night mode. */
+  --bm-ct-reel-bg:    #E0F2F1;
+  --bm-ct-reel-fg:    #00637E;
+  --bm-ct-project-bg: #FCE7F0;
+  --bm-ct-project-fg: #9D2667;
+
   /* ---- Typography ------------------------------------------------------- */
   --bm-font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
                   "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -169,6 +176,26 @@
   --bm-brand-50:  #15294A;
   --bm-brand-100: #1B345C;
   --bm-brand-700: #F2C14E;
+
+  /* Status scale for night mode: the -50 tints (backgrounds only) go DARK, while
+     -600/-700 (used as text on those tints and as standalone status text) go
+     LIGHT — so badges, alerts, chips and status text stay readable instead of
+     dark-on-dark. -500 stays saturated (borders, dots, progress). The danger
+     button, which uses -600/-700 as a background, is overridden in components.css. */
+  --bm-success-50: #11291F; --bm-success-600: #34D399; --bm-success-700: #6EE7B7;
+  --bm-warning-50: #2A2109; --bm-warning-600: #FBBF24; --bm-warning-700: #FCD34D;
+  --bm-danger-50:  #2B1417; --bm-danger-600:  #F87171; --bm-danger-700:  #FCA5A5;
+  --bm-info-50:    #12213B; --bm-info-600:    #60A5FA; --bm-info-700:    #93C5FD;
+
+  /* subtle neutral fills (neutral badge, table hover, empty calendar cells) */
+  --bm-slate-50:   #12243D;
+  --bm-slate-100:  #1B2F4A;
+
+  /* content-type chips → dark hues */
+  --bm-ct-reel-bg:    #0E2A2F;
+  --bm-ct-reel-fg:    #7FD4E0;
+  --bm-ct-project-bg: #2C1622;
+  --bm-ct-project-fg: #F3A9C9;
 
   --bm-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --bm-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
