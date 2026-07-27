@@ -467,10 +467,21 @@ export interface ContentItem {
   cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
   notion_url: string;
   footage_url?: string; // линк към суровия материал (Drive папка от снимачния ден)
+  thumbnail_url?: string; // Google Drive линк за преглед на thumbnail-ите (всеки може да сменя)
   published?: boolean;
   published_at?: string | null; // кога е публикувано — бордът архивира по него
   current_stage?: string;
   stages?: StageState[];
+}
+
+// Ако линкът сочи към конкретен файл в Google Drive, връща URL за вградена
+// картинка-преглед (thumbnail endpoint-а на Drive). За папки/непознати линкове
+// връща null — тогава показваме само линка „Отвори“. Файлът трябва да е
+// споделен с „всеки с линка“, за да се зареди визуализацията.
+export function driveThumbnailSrc(url: string | undefined, width = 400): string | null {
+  if (!url) return null;
+  const m = url.match(/\/file\/d\/([\w-]+)/) || url.match(/[?&]id=([\w-]+)/);
+  return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w${width}` : null;
 }
 
 // bg/border/text colours pulled from the design-system token scales.

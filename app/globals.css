@@ -40,6 +40,10 @@ a {
 .bm-main {
   padding: var(--bm-space-6); display: flex; flex-direction: column;
   gap: var(--bm-space-6); width: 100%; max-width: var(--bm-container-max);
+  /* margin-inline: auto центрира съдържанието — на нормален голям монитор то
+     запълва почти цялото място (остава само падингът), а на много широки екрани
+     остатъкът е малък и симетричен, вместо цял празен блок само отдясно. */
+  margin-inline: auto;
   padding-bottom: calc(var(--bm-space-8) + env(safe-area-inset-bottom));
 }
 
@@ -186,7 +190,27 @@ a {
 .tm-avatar-remove { border: none; background: none; padding: 0; color: var(--bm-brand-600); cursor: pointer; font: inherit; font-size: var(--bm-text-xs); text-decoration: underline; }
 
 /* Content calendar (shared component): full grid on desktop; on phones the
-   cells shrink to dots and the per-day agenda list below carries the titles. */
+   cells shrink to dots и заглавията се виждат при тап на деня (без списък отдолу). */
+/* Backlog list: сгъваем, с таван на височината, за да не заема много място,
+   особено на телефон, където непланираните видеа могат да са много. */
+/* Responsive grid: непланираните видеа се разпределят на няколко колони според
+   ширината, за да заемат по-малко височина (вместо една дълга колона). Свиването
+   се управлява от бутона „Непланирани видеа“ (backlogOpen). */
+.cc-backlog__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+@media (max-width: 768px) { .cc-backlog__list { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
+/* Всеки непланиран елемент е чиста бяла картичка с цветна лента отляво (по типа)
+   и тъмен четлив текст — вместо блед текст върху блед тон. borderLeftColor идва
+   инлайн от типа на видеото. */
+.cc-backlog__item {
+  min-width: 0; max-width: 100%;
+  background: var(--bm-surface); color: var(--bm-text);
+  border: 1px solid var(--bm-border); border-left-width: 3px;
+  border-radius: var(--bm-radius-sm); padding: 8px 10px;
+  font-size: var(--bm-text-sm); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+}
+.cc-backlog__item[draggable="true"] { cursor: grab; }
 /* min-width: 0 lets the 1fr grid columns hold their width — without it a long
    video title (a chip with nowrap) forces the cell to grow and blows the whole
    calendar out of shape; overflow: hidden keeps the ellipsis clipping to the cell. */
@@ -196,13 +220,13 @@ a {
 /* Chips are flex children of the cell; min-width: 0 lets them shrink so the
    text-overflow: ellipsis on each chip actually kicks in. */
 .cc-ev { min-width: 0; max-width: 100%; }
+/* Агендата под календара е премахната на телефон — насрочените видеа се виждат
+   като точки в клетката, а при тап на деня се отваря списък с тях. */
 .cc-dots { display: none; }
-.cc-agenda { display: none; }
 @media (max-width: 768px) {
   .cc-cell { min-height: 46px; padding: 4px; }
   .cc-ev { display: none; }
   .cc-dots { display: flex; gap: 3px; flex-wrap: wrap; }
-  .cc-agenda { display: flex; }
 }
 
 /* Phones: data tables keep compact one-line rows and scroll sideways inside

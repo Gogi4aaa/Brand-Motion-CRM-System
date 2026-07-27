@@ -135,7 +135,7 @@
   /* ---- Layout ----------------------------------------------------------- */
   --bm-sidebar-width: 248px;
   --bm-header-height: 60px;
-  --bm-container-max: 1440px;
+  --bm-container-max: 1760px;
 
   /* ---- Z-index scale ---------------------------------------------------- */
   --bm-z-base:     0;

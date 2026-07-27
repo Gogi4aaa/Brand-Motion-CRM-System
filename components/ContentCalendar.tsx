@@ -5,7 +5,7 @@
 // link). Клиентски селект + месечна решетка с drag-за-насрочване; на телефон
 // решетката става дневен списък.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { CONTENT_TYPES, contentTypeMeta, clientsById } from "@/lib/data";
@@ -41,6 +41,15 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
   // Кликнат ден: отваря преглед на насрочените за него видеа (ключово на
   // телефон, където решетката показва само точки) + създаване от там.
   const [dayView, setDayView] = useState<string | null>(null);
+  // Списъкът „Непланирани“ може да е дълъг — на телефон заема много място,
+  // затова е сгъваем. На телефон стартира сгънат (по подразбиране), а на десктоп
+  // отворен. Проверката е след mount, за да не чупи SSR.
+  const [backlogOpen, setBacklogOpen] = useState(true);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches) {
+      setBacklogOpen(false);
+    }
+  }, []);
   const today = new Date();
   const [view, setView] = useState({ y: today.getFullYear(), m: today.getMonth() });
 
@@ -60,12 +69,10 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
   // (ако има дата, то си стои на нея в решетката като ✓).
   const backlog = contentItems.filter((c) => matches(c) && !c.date && !c.published && pubOk(c));
   // Заглавие на чип: в общ изглед се показват и инициалите на клиента.
-  const chipTitle = (it: { title: string; client: string }) => (allMode ? `${byId[it.client]?.initials || "?"} · ${it.title}` : it.title);
-  // Mobile agenda: only the month's days that have content, in order.
-  const agenda = cells
-    .filter((c): c is { day: number; date: string } => c !== null)
-    .map((c) => ({ ...c, items: itemsFor(c.date) }))
-    .filter((c) => c.items.length > 0);
+  const chipTitle = (it: { title: string; client: string }) => {
+    const t = it.title || "(без заглавие)";
+    return allMode ? `${byId[it.client]?.initials || "?"} · ${t}` : t;
+  };
 
   const onDropDay = (date: string | null) => { if (dragId && canSchedule) { scheduleContent(dragId, date); setDragId(null); } };
 
@@ -110,37 +117,50 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => onDropDay(null)}
-            style={{ flex: "0 0 250px", minWidth: 0, maxWidth: "100%", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", minHeight: 320 }}
+            style={{ flex: "1 1 100%", minWidth: 0, maxWidth: "100%", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>Непланирани видеа</div>
-              <span className="bm-badge bm-badge--neutral">{backlog.length}</span>
-            </div>
             <button
-              className="bm-btn bm-btn--secondary bm-btn--sm"
-              disabled={!createClientId}
-              title={createClientId ? "" : "Избери конкретен клиент от филтъра, за да добавяш видеа"}
-              onClick={() => createClientId && openModal({ kind: "content", mode: "create", clientId: createClientId, date: "" })}
-            ><Icon name="plus" size={16} /> Ново видео</button>
-            <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>{!canSchedule ? "Само админ, мениджър или „Публикуващ“ насрочват видеата по дати." : allMode ? "Общ изглед на всички клиенти — избери конкретен клиент, за да добавяш нови видеа." : "Завлачи видео върху ден от календара, за да го насрочиш."}</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, overflowY: "auto" }}>
-              {backlog.length === 0 && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Няма непланирани видеа.</span>}
-              {backlog.map((it) => {
-                const m = contentTypeMeta(it.type);
-                return (
-                  <div
-                    key={it.id}
-                    draggable={canSchedule}
-                    onDragStart={canSchedule ? () => setDragId(it.id) : undefined}
-                    onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
-                    title={allMode ? `${byId[it.client]?.name || ""} — ${it.title}` : it.title}
-                    style={{ cursor: "grab", minWidth: 0, maxWidth: "100%", borderLeft: `3px solid ${m.fg}`, background: m.bg, color: m.fg, borderRadius: "var(--bm-radius-sm)", padding: "6px 8px", fontSize: "var(--bm-text-xs)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
-                    {chipTitle(it)}
-                  </div>
-                );
-              })}
-            </div>
+              type="button"
+              onClick={() => setBacklogOpen((o) => !o)}
+              aria-expanded={backlogOpen}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "none", border: "none", padding: 0, cursor: "pointer", width: "100%", font: "inherit" }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>
+                <span style={{ display: "inline-flex", transform: backlogOpen ? "rotate(90deg)" : "none", transition: "transform .15s ease" }}><Icon name="chevronRight" size={16} /></span>
+                Непланирани видеа
+              </span>
+              <span className="bm-badge bm-badge--neutral">{backlog.length}</span>
+            </button>
+            {backlogOpen && (
+              <>
+                <button
+                  className="bm-btn bm-btn--secondary bm-btn--sm"
+                  disabled={!createClientId}
+                  title={createClientId ? "" : "Избери конкретен клиент от филтъра, за да добавяш видеа"}
+                  onClick={() => createClientId && openModal({ kind: "content", mode: "create", clientId: createClientId, date: "" })}
+                ><Icon name="plus" size={16} /> Ново видео</button>
+                <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>{!canSchedule ? "Само админ, мениджър или „Публикуващ“ насрочват видеата по дати." : allMode ? "Общ изглед на всички клиенти — избери конкретен клиент, за да добавяш нови видеа." : "Завлачи видео върху ден от календара, за да го насрочиш."}</p>
+                <div className="cc-backlog__list">
+                  {backlog.length === 0 && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Няма непланирани видеа.</span>}
+                  {backlog.map((it) => {
+                    const m = contentTypeMeta(it.type);
+                    return (
+                      <div
+                        key={it.id}
+                        className="cc-backlog__item"
+                        draggable={canSchedule}
+                        onDragStart={canSchedule ? () => setDragId(it.id) : undefined}
+                        onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
+                        title={allMode ? `${byId[it.client]?.name || ""} — ${it.title}` : it.title}
+                        style={{ cursor: canSchedule ? "grab" : "pointer", minWidth: 0, maxWidth: "100%", background: "var(--bm-surface)", color: "var(--bm-text)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${m.fg}`, borderRadius: "var(--bm-radius-sm)", padding: "8px 10px", fontSize: "var(--bm-text-sm)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      >
+                        {chipTitle(it)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Calendar grid: full chips on desktop, compact dots on phones */}
@@ -196,30 +216,6 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
               })}
             </div>
           </div>
-          </div>
-
-          {/* Agenda (mobile): титлите по дни под компактната решетка */}
-          <div className="cc-agenda" style={{ flex: "1 1 100%", minWidth: 0, width: "100%", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-            {agenda.length === 0 && <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма насрочено съдържание за {MONTHS[view.m]}.</div>}
-            {agenda.map((d) => (
-              <div key={d.date} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>{d.day} {MONTHS[view.m]} · {WEEKDAYS[new Date(d.date).getDay()]}</div>
-                {d.items.map((it) => {
-                  const m = contentTypeMeta(it.type);
-                  const total = it.stages?.length || 0;
-                  const done = it.stages?.filter((s) => s.status === "done").length || 0;
-                  return (
-                    <div
-                      key={it.id}
-                      onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
-                      style={{ borderLeft: `3px solid ${m.fg}`, background: m.bg, color: m.fg, borderRadius: "var(--bm-radius-sm)", padding: "8px 10px", fontSize: "var(--bm-text-sm)", fontWeight: 600, cursor: "pointer" }}
-                    >
-                      {it.published ? "✓ " : ""}{chipTitle(it)}{total ? ` · ${done}/${total}` : ""}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
           </div>
         </div>
       ) : (

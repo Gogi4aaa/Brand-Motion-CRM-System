@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
+import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 import { BrandSectionsView } from "./BrandTab";
@@ -714,8 +714,8 @@ function ContentModal() {
   const { register, handleSubmit, getValues, setValue, watch, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
-      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", published: editing.published ?? false }
-      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", published: false },
+      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", published: editing.published ?? false }
+      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", thumbnail_url: "", published: false },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
   // Постът има различни полета: без Кука/Сценарий/CTA, с „Текст на поста“.
@@ -830,6 +830,27 @@ function ContentModal() {
               {(live?.footage_url || editing?.footage_url) && (
                 <a href={live?.footage_url || editing?.footage_url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600, marginTop: 4 }}>{isPost ? "Отвори визиите ↗" : "Отвори суровия материал ↗"}</a>
               )}
+            </div>
+            {/* Thumbnail линк (Google Drive) — всеки може да добавя/сменя. Ако сочи
+                към конкретен Drive файл, показваме и вградена картинка-преглед. */}
+            <div className="bm-field">
+              <label className="bm-label">Thumbnail (Google Drive линк)</label>
+              <input className="bm-input" {...register("thumbnail_url")} placeholder="https://drive.google.com/…" />
+              {(() => {
+                const url = watch("thumbnail_url")?.trim();
+                if (!url) return null;
+                const src = driveThumbnailSrc(url);
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                    {src && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={src} alt="Thumbnail преглед" style={{ maxWidth: 200, width: "100%", borderRadius: "var(--bm-radius-md)", border: "1px solid var(--bm-border)" }} />
+                    )}
+                    <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600 }}>Отвори в Drive ↗</a>
+                    {!src && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>За вграден преглед подай линк към конкретен файл, споделен с „всеки с линка“.</span>}
+                  </div>
+                );
+              })()}
             </div>
             <label className="bm-checkbox" title={canPublish ? "" : "Отбелязва се от админ, мениджър или Публикуващ"}><input type="checkbox" disabled={!canPublish} {...register("published")} /> Публикувано</label>
           </div>
