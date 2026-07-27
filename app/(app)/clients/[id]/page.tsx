@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
+import { Avatar } from "@/components/Avatar";
 import { CommentThread } from "@/components/CommentThread";
 import { BrandTab } from "@/components/BrandTab";
 import { clientsById, invStatusMeta, prioMeta, taskStatusLabel, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtK, fmtFull } from "@/lib/data";
@@ -120,7 +121,7 @@ export default function ClientDetailPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)" }}>
                   <span className={"bm-badge " + pm.cls}>{pm.label}</span>
-                  <span className="bm-avatar bm-avatar--sm">{t.assignee}</span>
+                  <Avatar initials={t.assignee} />
                 </div>
               </div>
             );
@@ -147,7 +148,7 @@ export default function ClientDetailPage() {
             <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", fontSize: "var(--bm-text-sm)", color: "var(--bm-text-muted)" }}>
               <p style={{ margin: 0 }}>{c.note}</p>
               <div style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center", paddingTop: "var(--bm-space-2)" }}>
-                <span className="bm-avatar bm-avatar--sm">{c.owner}</span>
+                <Avatar initials={c.owner} />
                 <span style={{ fontSize: "var(--bm-text-xs)" }}>Последна активност преди 2 дни</span>
               </div>
             </div>

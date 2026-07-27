@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
+import { Avatar } from "@/components/Avatar";
 import { healthMeta, fmtK, fmtFull } from "@/lib/data";
 
 export default function ClientsPage() {
@@ -70,7 +71,7 @@ export default function ClientsPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
                   <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>Отговорник</span>
-                  <span className="bm-avatar bm-avatar--sm">{c.owner}</span>
+                  <Avatar initials={c.owner} />
                 </div>
               </div>
               <button

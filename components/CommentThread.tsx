@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useStore } from "./store";
+import { Avatar } from "./Avatar";
 
 function ago(iso: string) {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -31,7 +32,7 @@ export function CommentThread({ entityType, entityId }: { entityType: "client" |
       )}
       {thread.map((c) => (
         <div key={c.id} style={{ display: "flex", gap: "var(--bm-space-3)" }}>
-          <span className="bm-avatar bm-avatar--sm">{c.author_initials}</span>
+          <Avatar initials={c.author_initials} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: "var(--bm-text-sm)" }}>
               <b>{c.author_name}</b>{" "}

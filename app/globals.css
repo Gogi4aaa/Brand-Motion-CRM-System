@@ -120,6 +120,21 @@ a {
   .bm-kcol__list { overflow-y: visible; flex: initial; }
 }
 
+/* Продукция „цял екран“: дъската заема целия прозорец, всяка колона се разтяга
+   до дъното и картите скролват вътре в колоната, а не цялата страница. */
+.pf-fs { position: fixed; inset: 0; z-index: 60; background: var(--bm-surface-2); display: flex; flex-direction: column; gap: var(--bm-space-3); padding: var(--bm-space-4); }
+.pf-fs__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--bm-space-3); flex-wrap: wrap; flex-shrink: 0; }
+.pf-fs__board { flex: 1 1 0; min-height: 0; display: flex; }
+/* grid-auto-rows: 1fr разтяга единствения ред до пълната височина, за да могат
+   колоните (align-items: stretch) да стигнат дъното; max-height маха капа. */
+.pf-fs__board .bm-board { flex: 1; height: 100%; grid-auto-rows: 1fr; }
+.pf-fs__board .bm-kcol { max-height: none; }
+@media (max-width: 768px) {
+  /* На телефон колоните пак се свайпват настрани; дъската скролва вертикално вътре. */
+  .pf-fs__board { overflow-y: auto; }
+  .pf-fs__board .bm-board { grid-auto-rows: auto; height: auto; }
+}
+
 /* Show one block on desktop, another on mobile (calendar month vs agenda) */
 .bm-hide-mobile { display: block; }
 .bm-show-mobile { display: none; }
@@ -162,6 +177,13 @@ a {
   .bm-modal__header { padding: var(--bm-space-4); }
   .bm-modal__footer { padding: var(--bm-space-3) var(--bm-space-4); }
 }
+
+/* Team avatar upload: камерата се показва върху аватара, за да е ясно, че
+   се цъка за смяна на профилната снимка. */
+.tm-avatar-edit { position: relative; display: inline-flex; cursor: pointer; border-radius: 50%; }
+.tm-avatar-edit__cam { position: absolute; right: -2px; bottom: -2px; font-size: 10px; line-height: 1; background: var(--bm-surface); border: 1px solid var(--bm-border); border-radius: 50%; padding: 2px; opacity: 0; transition: opacity .15s ease; }
+.tm-avatar-edit:hover .tm-avatar-edit__cam { opacity: 1; }
+.tm-avatar-remove { border: none; background: none; padding: 0; color: var(--bm-brand-600); cursor: pointer; font: inherit; font-size: var(--bm-text-xs); text-decoration: underline; }
 
 /* Content calendar (shared component): full grid on desktop; on phones the
    cells shrink to dots and the per-day agenda list below carries the titles. */

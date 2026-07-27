@@ -55,6 +55,27 @@ import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraft
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
 import { brandValueToText, type BrandAnswers, type BrandProfile } from "@/lib/brand";
 
+// Смалява избраната снимка до центриран квадрат size×size и я връща като
+// base64 JPEG data-URI (~няколко KB). Прави се изцяло в браузъра; резултатът
+// се пази направо в profiles.avatar_url, така че НЕ ползваме Supabase Storage —
+// снимката идва с обичайната заявка за профилите (без egress и рикуести на кадър).
+async function resizeToSquareDataUrl(file: File, size: number): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const sx = (bitmap.width - side) / 2;
+  const sy = (bitmap.height - side) / 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Браузърът не поддържа обработка на изображения.");
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
+  bitmap.close?.();
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+  if (!dataUrl.startsWith("data:image/jpeg")) throw new Error("Снимката не можа да се обработи.");
+  return dataUrl;
+}
+
 export interface CurrentUser { name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
 export interface ActivityItem { id: string; actor_name: string; actor_initials: string; action: string; created_at: string; audience?: "team" | "admin" }
 export interface NotificationItem { id: string; recipient: string; actor_name: string; actor_initials: string; body: string; link: string; entity_type: string; entity_id: string; read: boolean; created_at: string }
@@ -170,6 +191,8 @@ interface Store {
   updateMemberRoles: (memberId: string, roles: string[]) => void;
   updateMemberRole: (memberId: string, role: AccessRole) => void;
   updateMemberClients: (memberId: string, clientIds: string[]) => void;
+  uploadMemberAvatar: (memberId: string, file: File) => Promise<void>;
+  removeMemberAvatar: (memberId: string) => void;
   deleteMember: (memberId: string) => void;
   approveMember: (memberId: string) => void;
   changePassword: (current: string, next: string) => Promise<string | null>;
@@ -267,7 +290,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
           sb.from("activity").select("*").order("created_at", { ascending: false }).limit(20),
-          sb.from("profiles").select("id, name, initials, role, roles, client_ids, approved, email").order("created_at"),
+          sb.from("profiles").select("id, name, initials, role, roles, client_ids, approved, email, avatar_url").order("created_at"),
           sb.from("comments").select("*").order("created_at"),
           sb.from("leads").select("*").order("created_at"),
           sb.from("campaigns").select("*").order("created_at"),
@@ -1080,6 +1103,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateProfile(memberId, { client_ids: clientIds }, "достъп до клиенти");
   }, [updateProfile]);
 
+  // Профилна снимка: смаляваме до 128px квадрат JPEG в браузъра (няколко KB) и
+  // пазим самия base64 директно в profiles.avatar_url — БЕЗ Supabase Storage,
+  // за да няма постоянни рикуести/egress. Снимката се зарежда веднъж, заедно с
+  // профилите. Малкият екип прави общия размер на текста пренебрежим.
+  const uploadMemberAvatar = useCallback(async (memberId: string, file: File) => {
+    try {
+      const dataUrl = await resizeToSquareDataUrl(file, 128);
+      setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, avatar_url: dataUrl } : m)));
+      updateProfile(memberId, { avatar_url: dataUrl }, "профилна снимка");
+    } catch (e) {
+      notifyError("Снимката не се качи: " + (e as Error).message);
+    }
+  }, [updateProfile, notifyError]);
+
+  const removeMemberAvatar = useCallback((memberId: string) => {
+    setTeam((list) => list.map((m) => (m.id === memberId ? { ...m, avatar_url: undefined } : m)));
+    updateProfile(memberId, { avatar_url: null }, "премахване на снимка");
+  }, [updateProfile]);
+
   // Смяна на парола: първо проверява текущата (someone-at-your-desk защита),
   // после я обновява през Supabase Auth. Връща текст на грешка или null.
   const changePassword = useCallback(async (current: string, next: string): Promise<string | null> => {
@@ -1221,7 +1263,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- Invoices ----
   const addInvoice = useCallback((f: InvoiceForm) => {
     setInvoices((list) => {
-      const id = "INV-" + (1042 + list.length + 10);
+      // ID = най-голям съществуващ номер + 1 (не по брой — иначе след триене на
+      // фактура следващото добавяне регенерира зает ID и удря duplicate key 409).
+      const maxNum = list.reduce((mx, iv) => {
+        const n = parseInt(String(iv.id).replace(/\D/g, ""), 10);
+        return Number.isNaN(n) ? mx : Math.max(mx, n);
+      }, 1051);
+      const id = "INV-" + (maxNum + 1);
       const row = { id, client_id: f.client, amount: f.amount, status: f.status, issued: "Today", due: f.due || "—" };
       sb()?.from("invoices").insert(row).then(({ error }) => error && console.error("[BrandMotion] addInvoice failed:", error));
       return [{ id, client: f.client, amount: f.amount, status: f.status, issued: "Today", due: f.due || "—" }, ...list];
@@ -1351,7 +1399,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
-    advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, deleteMember, approveMember, changePassword, visibleClients,
+    advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,

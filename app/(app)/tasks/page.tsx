@@ -3,11 +3,15 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
+import { Avatar } from "@/components/Avatar";
 import { clientsById, prioMeta, TASK_COLUMNS, fmtFull, payoutFor, canSeeTask, isArchived, BOARD_RETENTION_DAYS, WEEKLY_CAPACITY_HOURS, type TaskStatus } from "@/lib/data";
 
 export default function TasksPage() {
   const { clients, tasks, team, moveTask, openModal, currentUser, markWorkerPaid, visibleClients } = useStore();
   const [filter, setFilter] = useState("all");
+  // Филтър по изпълнител — за админ/мениджър, за да гледат борда на един човек
+  // наведнъж вместо всички задачи накуп. Работникът и без това вижда само своите.
+  const [assignee, setAssignee] = useState("all");
   const [showOld, setShowOld] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const byId = clientsById(clients);
@@ -17,9 +21,10 @@ export default function TasksPage() {
 
   // Done по-старо от BOARD_RETENTION_DAYS се прибира от борда; сумите долу
   // (възнаграждения, натовареност) винаги смятат върху пълния списък tasks.
-  const oldDoneCount = scoped.filter((t) => t.status === "done" && isArchived(t.done_at) && (filter === "all" || t.client === filter)).length;
+  const matchAssignee = (t: { assignee?: string }) => assignee === "all" || t.assignee === assignee;
+  const oldDoneCount = scoped.filter((t) => t.status === "done" && isArchived(t.done_at) && (filter === "all" || t.client === filter) && matchAssignee(t)).length;
   const visible = scoped.filter((t) =>
-    (filter === "all" || t.client === filter) && (showOld || t.status !== "done" || !isArchived(t.done_at)));
+    (filter === "all" || t.client === filter) && matchAssignee(t) && (showOld || t.status !== "done" || !isArchived(t.done_at)));
   const clientCount = new Set(scoped.map((t) => t.client)).size;
 
   // Workload: planned hours per person across open (non-done) tasks vs the
@@ -52,6 +57,12 @@ export default function TasksPage() {
           <label className="bm-checkbox" title={`Завършените преди повече от ${BOARD_RETENTION_DAYS} дни се прибират от борда (историята и плащанията се пазят)`}>
             <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> Стари{oldDoneCount > 0 ? ` (${oldDoneCount})` : ""}
           </label>
+          {currentUser.level !== "worker" && (
+            <select className="bm-select" style={{ width: "auto", minWidth: 170 }} value={assignee} onChange={(e) => setAssignee(e.target.value)} title="Виж задачите на конкретен изпълнител">
+              <option value="all">Всички изпълнители</option>
+              {team.map((m) => <option key={m.id} value={m.initials}>{m.name}</option>)}
+            </select>
+          )}
           <select className="bm-select" style={{ width: "auto", minWidth: 170 }} value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">Всички клиенти</option>
             {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -95,7 +106,7 @@ export default function TasksPage() {
               return (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", borderBottom: "1px solid var(--bm-border)", paddingBottom: "var(--bm-space-3)" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{m.initials}</span>
+                    <Avatar initials={m.initials} style={{ width: 24, height: 24, fontSize: 10 }} />
                     <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{m.name}</span>
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -124,7 +135,7 @@ export default function TasksPage() {
                 <div key={w.initials} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{w.initials}</span>
+                      <Avatar initials={w.initials} style={{ width: 24, height: 24, fontSize: 10 }} />
                       <span style={{ fontSize: "var(--bm-text-sm)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</span>
                     </span>
                     <span className={"bm-badge " + (over ? "bm-badge--danger" : w.hours >= WEEKLY_CAPACITY_HOURS * 0.8 ? "bm-badge--warning" : "bm-badge--success")}>{w.hours}ч{over ? " · претоварен" : ""}</span>
@@ -182,7 +193,7 @@ export default function TasksPage() {
                           <span style={{ flexShrink: 0, fontWeight: 600, color: t.paid ? "var(--bm-success-600)" : "var(--bm-text-muted)" }}>· {fmtFull(t.pay_amount || 0)}{t.paid ? " ✓" : ""}</span>
                         ) : null}
                       </span>
-                      <span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{t.assignee}</span>
+                      <Avatar initials={t.assignee} style={{ width: 24, height: 24, fontSize: 10 }} />
                     </div>
                     {/* Телефон: влаченето не работи на touch — стрелките местят между колоните */}
                     <div className="bm-card-move">

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useStore } from "@/components/store";
+import { Icon } from "@/components/Icon";
+import { Avatar } from "@/components/Avatar";
 import { ContentCalendar } from "@/components/ContentCalendar";
 import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, CYCLE_PHASES, monthLabel } from "@/lib/data";
 
@@ -24,6 +26,18 @@ export default function ProductionPage() {
   const [mine, setMine] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
+  // Дъската на цял екран: разгъва борда до целия прозорец (отгоре до долу),
+  // за да се вижда целият прогрес без скролване през останалата страница.
+  const [fullscreen, setFullscreen] = useState(false);
+  // Esc затваря режима „цял екран“ и заключваме скрола на страницата отдолу.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [fullscreen]);
 
   // Публикуваното отпреди BOARD_RETENTION_DAYS дни се архивира от борда —
   // видеата остават в базата (клиентският портал и пакетът ги ползват).
@@ -48,6 +62,109 @@ export default function ProductionPage() {
   const completed = tabItems.filter((c) => c.published);
   const videosCount = visible.filter((c) => c.type !== "post").length;
   const postsCount = visible.filter((c) => c.type === "post").length;
+
+  // Самата дъска (колони + „Приключени“) — рендерира се на страницата и в
+  // режима „цял екран“, затова е изнесена тук като функция.
+  const renderBoard = () => (
+    <div className={"bm-board " + (boardTab === "posts" ? "bm-board--6" : "bm-board--7")}>
+      {stagesSet.map((col) => {
+        const items = colItems(col.key);
+        return (
+          <div
+            key={col.key}
+            className="bm-kcol"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => {
+              if (!dragId) return;
+              // Пускане в СЪЩАТА колона е no-op — без излишен retarget на таска.
+              const it = contentItems.find((c) => c.id === dragId);
+              if (it && (it.current_stage || "strategy") !== col.key) advanceStage(dragId, col.key);
+              setDragId(null);
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: col.dot, flexShrink: 0 }} />
+                <span title={col.label} style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{col.label}</span>
+              </div>
+              <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{items.length}</span>
+            </div>
+
+            <div className="bm-noscrollbar bm-kcol__list">
+            {items.map((it) => {
+              const ct = contentTypeMeta(it.type);
+              const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));
+              const canMove = currentUser.isAdmin || currentUser.level === "manager" || cur?.assignee === currentUser.initials;
+              return (
+                <div
+                  key={it.id}
+                  className={canMove ? "aw-tcard" : undefined}
+                  draggable={canMove}
+                  onDragStart={canMove ? () => setDragId(it.id) : undefined}
+                  onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
+                  style={{ background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer" }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
+                      {cur?.assignee && <Avatar initials={cur.assignee} style={{ width: 22, height: 22, fontSize: 9 }} />}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {items.length === 0 && (
+              <div style={{ border: "1px dashed var(--bm-border-strong)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", textAlign: "center", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>—</div>
+            )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Приключени: публикувани ръчно, през етапите или от нощния job при
+          минала дата. Drop тук маркира видеото публикувано (само canPublish). */}
+      <div
+        className="bm-kcol"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={() => {
+          if (dragId && canPublish) completeVideo(dragId);
+          setDragId(null);
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--bm-success-600)", flexShrink: 0 }} />
+            <span title="Приключени" style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Приключени</span>
+          </div>
+          <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{completed.length}</span>
+        </div>
+        <div className="bm-noscrollbar bm-kcol__list">
+          {completed.map((it) => {
+            const ct = contentTypeMeta(it.type);
+            return (
+              <div
+                key={it.id}
+                onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
+                style={{ background: "var(--bm-success-50)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer" }}
+              >
+                <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>✓ {it.title || "(без заглавие)"}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
+                  <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
+                </div>
+              </div>
+            );
+          })}
+          {completed.length === 0 && (
+            <div style={{ border: "1px dashed var(--bm-border-strong)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", textAlign: "center", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>—</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
@@ -118,109 +235,17 @@ export default function ProductionPage() {
           <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
           <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
         </div>
-        {boardTab === "posts" && (canImport || myRoles.includes("posts")) && (
-          <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => openModal({ kind: "createPosts" })}>+ Нови постове</button>
-        )}
-      </div>
-
-      <div className={"bm-board " + (boardTab === "posts" ? "bm-board--6" : "bm-board--7")}>
-        {stagesSet.map((col) => {
-          const items = colItems(col.key);
-          return (
-            <div
-              key={col.key}
-              className="bm-kcol"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
-                if (!dragId) return;
-                // Пускане в СЪЩАТА колона е no-op — без излишен retarget на таска.
-                const it = contentItems.find((c) => c.id === dragId);
-                if (it && (it.current_stage || "strategy") !== col.key) advanceStage(dragId, col.key);
-                setDragId(null);
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: col.dot, flexShrink: 0 }} />
-                  <span title={col.label} style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{col.label}</span>
-                </div>
-                <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{items.length}</span>
-              </div>
-
-              <div className="bm-noscrollbar bm-kcol__list">
-              {items.map((it) => {
-                const ct = contentTypeMeta(it.type);
-                const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));
-                const canMove = currentUser.isAdmin || currentUser.level === "manager" || cur?.assignee === currentUser.initials;
-                return (
-                  <div
-                    key={it.id}
-                    className={canMove ? "aw-tcard" : undefined}
-                    draggable={canMove}
-                    onDragStart={canMove ? () => setDragId(it.id) : undefined}
-                    onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
-                    style={{ background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer" }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
-                        {cur?.assignee && <span className="bm-avatar bm-avatar--sm" style={{ width: 22, height: 22, fontSize: 9 }}>{cur.assignee}</span>}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {items.length === 0 && (
-                <div style={{ border: "1px dashed var(--bm-border-strong)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", textAlign: "center", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>—</div>
-              )}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Приключени: публикувани ръчно, през етапите или от нощния job при
-            минала дата. Drop тук маркира видеото публикувано (само canPublish). */}
-        <div
-          className="bm-kcol"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={() => {
-            if (dragId && canPublish) completeVideo(dragId);
-            setDragId(null);
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--bm-success-600)", flexShrink: 0 }} />
-              <span title="Приключени" style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Приключени</span>
-            </div>
-            <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{completed.length}</span>
-          </div>
-          <div className="bm-noscrollbar bm-kcol__list">
-            {completed.map((it) => {
-              const ct = contentTypeMeta(it.type);
-              return (
-                <div
-                  key={it.id}
-                  onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
-                  style={{ background: "var(--bm-success-50)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer" }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>✓ {it.title || "(без заглавие)"}</div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
-                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
-                  </div>
-                </div>
-              );
-            })}
-            {completed.length === 0 && (
-              <div style={{ border: "1px dashed var(--bm-border-strong)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", textAlign: "center", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>—</div>
-            )}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
+          {boardTab === "posts" && (canImport || myRoles.includes("posts")) && (
+            <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => openModal({ kind: "createPosts" })}>+ Нови постове</button>
+          )}
+          <button className="bm-btn bm-btn--secondary bm-btn--sm" title="Виж дъската на цял екран" onClick={() => setFullscreen(true)}>
+            <ExpandIcon /> Цял екран
+          </button>
         </div>
       </div>
+
+      {renderBoard()}
 
       {contentItems.length === 0 && (
         <div className="bm-card"><div className="bm-card__body bm-text-subtle">Все още няма видеа. Добави съдържание в календара по-долу и то ще се появи тук като карта за продукция.</div></div>
@@ -235,6 +260,38 @@ export default function ProductionPage() {
         </div>
         <ContentCalendar clientId={clientFilter} onClientChange={setClientFilter} />
       </div>
+
+      {/* Дъската на цял екран — целият прогрес отгоре до долу, без страничен скрол. */}
+      {fullscreen && (
+        <div className="pf-fs">
+          <div className="pf-fs__bar">
+            <div className="bm-tabs" style={{ border: "none" }}>
+              <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
+              <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
+              <label className="bm-checkbox"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Моята работа</label>
+              <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
+                <option value="all">Всички клиенти</option>
+                {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button className="bm-btn bm-btn--secondary" onClick={() => setFullscreen(false)}><Icon name="close" size={16} /> Затвори</button>
+            </div>
+          </div>
+          <div className="pf-fs__board">
+            {renderBoard()}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// Иконка „разгъни на цял екран“ — четири стрелки към ъглите.
+function ExpandIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+    </svg>
   );
 }

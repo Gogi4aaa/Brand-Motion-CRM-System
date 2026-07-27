@@ -188,6 +188,7 @@ export interface TeamMember {
   client_ids?: string[]; // clients this member may see (empty = role default)
   approved?: boolean; // false = чака одобрение от админ (нова регистрация)
   email?: string; // за валидиращия имейл при одобрение
+  avatar_url?: string; // публичен URL на профилната снимка (Storage bucket „avatars“)
 }
 
 // ---- Video production pipeline ----

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Icon } from "./Icon";
+import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
 import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, type ContentType } from "@/lib/data";
@@ -890,7 +891,7 @@ function ContentModal() {
                       </select>
                     ) : (
                       <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-muted)", display: "flex", alignItems: "center", gap: 6 }} title={team.find((m) => m.initials === s.assignee)?.name || ""}>
-                        {s.assignee ? <span className="bm-avatar bm-avatar--sm" style={{ width: 20, height: 20, fontSize: 9 }}>{s.assignee}</span> : "—"}
+                        {s.assignee ? <Avatar initials={s.assignee} style={{ width: 20, height: 20, fontSize: 9 }} /> : "—"}
                         {team.find((m) => m.initials === s.assignee)?.name || ""}
                       </span>
                     )}

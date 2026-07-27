@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
+import { Avatar } from "@/components/Avatar";
 import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor, inCurrentMonth } from "@/lib/data";
 
 type Period = "today" | "week" | "month";
@@ -143,7 +144,7 @@ export default function DashboardPage() {
               {shownNotifications.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма известия.</p>}
               {shownNotifications.slice(0, 4).map((n) => (
                 <div key={n.id} onClick={() => markNotificationRead(n.id)} style={{ display: "flex", gap: "var(--bm-space-3)", padding: "var(--bm-space-3) 0", borderBottom: "1px solid var(--bm-border)", cursor: "pointer" }}>
-                  <span className="bm-avatar bm-avatar--sm">{n.actor_initials}</span>
+                  <Avatar initials={n.actor_initials} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: "var(--bm-text-sm)", fontWeight: n.read ? 400 : 600 }}>{n.body}</div>
                     <small style={{ color: "var(--bm-text-subtle)" }}>{ago(n.created_at)}</small>
@@ -213,14 +214,14 @@ export default function DashboardPage() {
               {feed.length === 0 && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Все още няма активност.</p>}
               {feed.map((a, i) => (
                 <div key={i} style={{ display: "flex", gap: "var(--bm-space-3)", padding: "var(--bm-space-3) 0", borderBottom: "1px solid var(--bm-border)" }}>
-                  <span className="bm-avatar bm-avatar--sm">{a.who}</span>
+                  <Avatar initials={a.who} />
                   <div><div><b>{a.name}</b> {a.text}</div><small style={{ color: "var(--bm-text-subtle)" }}>{a.when}</small></div>
                 </div>
               ))}
             </div>
           </Collapse>
 
-          <Collapse title="Натовареност на екипа" badge={<div className="bm-avatar-group">{team.slice(0,4).map((m) => <span key={m.id} className="bm-avatar bm-avatar--sm">{m.initials}</span>)}</div>}>
+          <Collapse title="Натовареност на екипа" badge={<div className="bm-avatar-group">{team.slice(0,4).map((m) => <Avatar key={m.id} initials={m.initials} />)}</div>}>
             <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
               {workload.map((w) => (
                 <div key={w.name}>

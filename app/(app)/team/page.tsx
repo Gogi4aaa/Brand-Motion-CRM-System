@@ -1,6 +1,7 @@
 "use client";
 
 import { useStore } from "@/components/store";
+import { Avatar } from "@/components/Avatar";
 import { PRODUCTION_ROLES, ROLE_LABELS, memberTitle, type AccessRole } from "@/lib/data";
 
 const ROLE_HELP: Record<AccessRole, string> = {
@@ -10,7 +11,7 @@ const ROLE_HELP: Record<AccessRole, string> = {
 };
 
 export default function TeamPage() {
-  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, deleteMember, approveMember, openModal } = useStore();
+  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, openModal } = useStore();
   // Новите регистрации чакат одобрение; в основната таблица влизат само одобрените.
   const pending = team.filter((m) => m.approved === false);
   const members = team.filter((m) => m.approved !== false);
@@ -49,7 +50,7 @@ export default function TeamPage() {
             {pending.map((m) => (
               <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap", borderBottom: "1px solid var(--bm-border)", paddingBottom: "var(--bm-space-3)" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <span className="bm-avatar bm-avatar--sm">{m.initials}</span>
+                  <Avatar initials={m.initials} />
                   <span style={{ minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", display: "block" }}>{m.name}</span>
                     <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{m.email}</span>
@@ -76,10 +77,28 @@ export default function TeamPage() {
                 <tr key={m.id}>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)" }}>
-                      <span className="bm-avatar bm-avatar--sm">{m.initials}</span>
+                      {(currentUser.isAdmin || isMe) ? (
+                        <label className="tm-avatar-edit" title="Смени профилна снимка">
+                          <Avatar initials={m.initials} />
+                          <span className="tm-avatar-edit__cam" aria-hidden="true">📷</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMemberAvatar(m.id, f); e.currentTarget.value = ""; }}
+                          />
+                        </label>
+                      ) : (
+                        <Avatar initials={m.initials} />
+                      )}
                       <div>
                         <div style={{ fontWeight: 600 }}>{m.name} {isMe && <span className="bm-text-subtle" style={{ fontWeight: 400 }}>(вие)</span>}</div>
-                        <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{m.initials} · {memberTitle(m)}</div>
+                        <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>
+                          {m.initials} · {memberTitle(m)}
+                          {(currentUser.isAdmin || isMe) && m.avatar_url && (
+                            <> · <button className="tm-avatar-remove" onClick={() => removeMemberAvatar(m.id)}>махни снимката</button></>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>

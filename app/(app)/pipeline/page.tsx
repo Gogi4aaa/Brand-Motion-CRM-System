@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
+import { Avatar } from "@/components/Avatar";
 import { PIPELINE_STAGES, fmtFull, fmtK, type LeadStage } from "@/lib/data";
 
 function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.ReactNode; deltaCls?: string; delta?: string }) {
@@ -76,7 +77,7 @@ export default function PipelinePage() {
                   <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{l.contact}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "var(--bm-space-1)" }}>
                     <span style={{ fontFamily: "var(--bm-font-mono)", fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>{fmtFull(l.value)}</span>
-                    <span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{l.owner}</span>
+                    <Avatar initials={l.owner} style={{ width: 24, height: 24, fontSize: 10 }} />
                   </div>
                 </div>
               ))}

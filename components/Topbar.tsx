@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "./Icon";
+import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 
 function ago(iso: string) {
@@ -50,7 +51,7 @@ function Notifications() {
                 onClick={() => { markNotificationRead(n.id); if (n.entity_type === "content") router.push("/production"); setOpen(false); }}
                 style={{ display: "flex", gap: "var(--bm-space-3)", padding: "var(--bm-space-3) var(--bm-space-4)", borderBottom: "1px solid var(--bm-border)", cursor: "pointer", background: n.read ? "transparent" : "var(--bm-info-50)" }}
               >
-                <span className="bm-avatar bm-avatar--sm">{n.actor_initials}</span>
+                <Avatar initials={n.actor_initials} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: "var(--bm-text-sm)" }}>{n.body}</div>
                   <small style={{ color: "var(--bm-text-subtle)" }}>{ago(n.created_at)}</small>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "./Icon";
+import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { fmtK, canAccess, memberTitle, inCurrentMonth } from "@/lib/data";
 
@@ -103,7 +104,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         </div>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", padding: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
-          <span className="bm-avatar">{currentUser.initials}</span>
+          <Avatar initials={currentUser.initials} size="md" />
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser.name}</div>
             <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{myTitle}</div>
