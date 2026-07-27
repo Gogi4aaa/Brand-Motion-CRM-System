@@ -562,6 +562,7 @@ export interface Approval {
   approver_email: string;
   feedback: string;
   suggested_script?: string; // редакцията на клиента — предложение, не презапис
+  batch_token?: string | null; // ако е част от групов линк (/review/group/<token>)
   decided_at?: string | null;
   created_at?: string;
 }

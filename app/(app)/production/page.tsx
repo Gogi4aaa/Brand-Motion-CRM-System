@@ -5,10 +5,11 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { ContentCalendar } from "@/components/ContentCalendar";
+import { BatchLinkModal } from "@/components/BatchLinkModal";
 import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, CYCLE_PHASES, monthLabel } from "@/lib/data";
 
 export default function ProductionPage() {
-  const { contentItems, clients, cycles, currentUser, advanceStage, completeVideo, advanceCycle, openModal, visibleClients, team } = useStore();
+  const { contentItems, clients, cycles, currentUser, advanceStage, completeVideo, advanceCycle, openModal, visibleClients, team, requestBatchApproval } = useStore();
   // Импортът на сценарии е и за стратезите/сценаристите — тяхната работа е
   // да вкарват готовите текстове, без това да им дава екипни права. Циклите
   // обаче са координация и остават за admin/manager.
@@ -29,6 +30,25 @@ export default function ProductionPage() {
   // Дъската на цял екран: разгъва борда до целия прозорец (отгоре до долу),
   // за да се вижда целият прогрес без скролване през останалата страница.
   const [fullscreen, setFullscreen] = useState(false);
+  // Групово одобрение: избираш видеата директно върху картите на дъската
+  // (режим на избор), а контролите са във фиксирана лента долу — без да местят
+  // интерфейса. Резултатният линк се показва в малък модал.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchLink, setBatchLink] = useState("");
+  const toggleSelect = (id: string) => setSelectedIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const exitSelect = () => { setSelectMode(false); setSelectedIds(new Set()); };
+  // Смяна на клиент/таб излиза от избора, за да не се смесват видеа на клиенти.
+  const changeClient = (id: string) => { exitSelect(); setClientFilter(id); };
+  const changeTab = (t: "videos" | "posts") => { exitSelect(); setBoardTab(t); };
+  const createBatchLink = async () => {
+    if (!selectedIds.size) return;
+    setBatchBusy(true);
+    const token = await requestBatchApproval(Array.from(selectedIds));
+    setBatchBusy(false);
+    if (token) { setBatchLink(`${window.location.origin}/review/group/${token}`); exitSelect(); }
+  };
   // Esc затваря режима „цял екран“ и заключваме скрола на страницата отдолу.
   useEffect(() => {
     if (!fullscreen) return;
@@ -95,16 +115,20 @@ export default function ProductionPage() {
               const ct = contentTypeMeta(it.type);
               const cur = (it.stages || []).find((s) => s.key === (it.current_stage || "strategy"));
               const canMove = currentUser.isAdmin || currentUser.level === "manager" || cur?.assignee === currentUser.initials;
+              const picked = selectMode && selectedIds.has(it.id);
               return (
                 <div
                   key={it.id}
-                  className={canMove ? "aw-tcard" : undefined}
-                  draggable={canMove}
-                  onDragStart={canMove ? () => setDragId(it.id) : undefined}
-                  onClick={() => openModal({ kind: "content", mode: "edit", item: it })}
-                  style={{ background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer" }}
+                  className={!selectMode && canMove ? "aw-tcard" : undefined}
+                  draggable={!selectMode && canMove}
+                  onDragStart={!selectMode && canMove ? () => setDragId(it.id) : undefined}
+                  onClick={() => (selectMode ? toggleSelect(it.id) : openModal({ kind: "content", mode: "edit", item: it }))}
+                  style={{ position: "relative", background: "var(--bm-surface)", border: "1px solid var(--bm-border)", borderLeft: `3px solid ${ct.fg}`, borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)", boxShadow: "var(--bm-shadow-xs)", cursor: "pointer", outline: picked ? "2px solid var(--bm-brand-500)" : undefined, outlineOffset: picked ? 1 : undefined }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
+                  {selectMode && (
+                    <span aria-hidden="true" style={{ position: "absolute", top: 6, right: 6, width: 18, height: 18, borderRadius: 4, border: "2px solid var(--bm-brand-500)", background: picked ? "var(--bm-brand-500)" : "var(--bm-surface)", color: "#fff", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, lineHeight: 1 }}>{picked ? "✓" : ""}</span>
+                  )}
+                  <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)", paddingRight: selectMode ? 22 : 0 }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
                     <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -181,7 +205,7 @@ export default function ProductionPage() {
           {canImport && (
             <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "importScripts" })}>Импортирай сценарии</button>
           )}
-          <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
+          <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => changeClient(e.target.value)}>
             <option value="all">Всички клиенти</option>
             {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
@@ -232,12 +256,19 @@ export default function ProductionPage() {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
         <div className="bm-tabs" style={{ border: "none" }}>
-          <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
-          <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
+          <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => changeTab("videos")}>Видеа ({videosCount})</button>
+          <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => changeTab("posts")}>Постове ({postsCount})</button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
           {boardTab === "posts" && (canImport || myRoles.includes("posts")) && (
             <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => openModal({ kind: "createPosts" })}>+ Нови постове</button>
+          )}
+          {boardTab === "videos" && clientFilter !== "all" && (
+            <button
+              className={"bm-btn bm-btn--sm " + (selectMode ? "bm-btn--primary" : "bm-btn--secondary")}
+              title="Избери видеа върху дъската и ги прати за одобрение с един линк"
+              onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            >{selectMode ? "Изход от избор" : "Групово одобрение"}</button>
           )}
           <button className="bm-btn bm-btn--secondary bm-btn--sm" title="Виж дъската на цял екран" onClick={() => setFullscreen(true)}>
             <ExpandIcon /> Цял екран
@@ -258,20 +289,31 @@ export default function ProductionPage() {
           <h2 style={{ margin: 0 }}>Контент календар</h2>
           <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Планът за месеца — кое видео кога излиза. Филтърът по клиент горе важи и за дъската, и за календара.</p>
         </div>
-        <ContentCalendar clientId={clientFilter} onClientChange={setClientFilter} />
+        <ContentCalendar clientId={clientFilter} onClientChange={changeClient} />
       </div>
+
+      {/* Фиксирана лента за груповия избор — не мести интерфейса. */}
+      {selectMode && (
+        <div className="pf-batchbar">
+          <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{selectedIds.size} избрани за одобрение</span>
+          <button className="bm-btn bm-btn--ghost bm-btn--sm" onClick={exitSelect}>Отказ</button>
+          <button className="bm-btn bm-btn--primary bm-btn--sm" disabled={!selectedIds.size || batchBusy} onClick={createBatchLink}>{batchBusy ? "Създаване…" : "Създай линк"}</button>
+        </div>
+      )}
+
+      {batchLink && <BatchLinkModal link={batchLink} onClose={() => setBatchLink("")} />}
 
       {/* Дъската на цял екран — целият прогрес отгоре до долу, без страничен скрол. */}
       {fullscreen && (
         <div className="pf-fs">
           <div className="pf-fs__bar">
             <div className="bm-tabs" style={{ border: "none" }}>
-              <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => setBoardTab("videos")}>Видеа ({videosCount})</button>
-              <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => setBoardTab("posts")}>Постове ({postsCount})</button>
+              <button role="tab" className="bm-tab" aria-selected={boardTab === "videos"} onClick={() => changeTab("videos")}>Видеа ({videosCount})</button>
+              <button role="tab" className="bm-tab" aria-selected={boardTab === "posts"} onClick={() => changeTab("posts")}>Постове ({postsCount})</button>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
               <label className="bm-checkbox"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Моята работа</label>
-              <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
+              <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => changeClient(e.target.value)}>
                 <option value="all">Всички клиенти</option>
                 {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>

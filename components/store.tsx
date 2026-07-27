@@ -179,6 +179,7 @@ interface Store {
   promoteIdea: (id: string) => void;
   addAiIdeas: (clientId: string, list: { title: string; description: string; hook: string }[]) => void;
   requestApproval: (contentItemId: string) => Promise<string | null>;
+  requestBatchApproval: (itemIds: string[]) => Promise<string | null>;
   dismissSuggestion: (approvalId: string) => void;
   startCycle: (clientId: string, month: string, targetCount: number) => void;
   advanceCycle: (cycleId: string, toPhase: CyclePhase) => void;
@@ -908,6 +909,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return token;
   }, [approvals, contentItems, currentUser.initials, logActivity]);
 
+  // Групов линк за одобрение: един токен (approval_batches) → много видеа. За
+  // всяко видео се създава собствен pending approvals ред с batch_token, така че
+  // клиентът решава per-video, а екипният код (review_decide, задачи) е непроменен.
+  // Връща batch токена → линк /review/group/<token>. Видеата трябва да са на един клиент.
+  const requestBatchApproval = useCallback(async (itemIds: string[]): Promise<string | null> => {
+    const items = itemIds.map((id) => contentItems.find((c) => c.id === id)).filter((c): c is ContentItem => !!c);
+    if (!items.length) return null;
+    const clientId = items[0].client;
+    const uid = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : Math.random().toString(36).slice(2) + Date.now());
+    const batchToken = "rb" + uid();
+    const rows: Approval[] = items.map((it) => ({ id: "rv" + uid(), content_item_id: it.id, client_id: it.client, owner: currentUser.initials, status: "pending", approver_email: "", feedback: "", batch_token: batchToken }));
+    setApprovals((list) => [...rows, ...list]);
+    const client = sb();
+    if (client) {
+      const { error: bErr } = await client.from("approval_batches").insert({ token: batchToken, client_id: clientId, owner: currentUser.initials });
+      if (bErr) { console.error("[BrandMotion] requestBatchApproval batch failed:", bErr); notifyError("Груповият линк не се създаде: " + bErr.message + " — провери миграция 0034."); return null; }
+      const { error: aErr } = await client.from("approvals").insert(rows);
+      if (aErr) { console.error("[BrandMotion] requestBatchApproval rows failed:", aErr); notifyError("Видеата не се закачиха към групата: " + aErr.message); return null; }
+    }
+    logActivity(`изпрати ${items.length} видеа за одобрение от клиента (групов линк)`);
+    return batchToken;
+  }, [contentItems, currentUser.initials, logActivity, notifyError]);
+
   // Изчиства предложената от клиента редакция, след като екипът я приеме или
   // отхвърли — статусът и бележката на одобрението остават.
   const dismissSuggestion = useCallback((approvalId: string) => {
@@ -1395,7 +1419,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const value: Store = {
     clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
-    addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval, dismissSuggestion,
+    addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval, requestBatchApproval, dismissSuggestion,
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
