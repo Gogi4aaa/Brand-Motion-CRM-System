@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, type ContentType } from "@/lib/data";
+import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 import { BrandSectionsView } from "./BrandTab";
@@ -403,16 +403,17 @@ function TaskModal() {
 }
 
 function LeadModal() {
-  const { modal, closeModal, addLead, updateLead, deleteLead, openModal, currentUser, team } = useStore();
+  const { modal, closeModal, addLead, updateLead, deleteLead, openModal, currentUser, team, clients } = useStore();
   const editing = modal?.kind === "lead" && modal.mode === "edit" ? modal.lead : null;
   const ownerOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LeadForm>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<LeadForm>({
     resolver: zodResolver(leadSchema),
     defaultValues: editing
-      ? { name: editing.name, contact: editing.contact, value: editing.value, stage: editing.stage, owner: editing.owner }
-      : { name: "", contact: "", value: 0, stage: "new", owner: currentUser.initials },
+      ? { name: editing.name, contact: editing.contact, value: editing.value, stage: editing.stage, owner: editing.owner, source: editing.source ?? "cold", referred_by_client_id: editing.referred_by_client_id ?? "", referred_by_name: editing.referred_by_name ?? "" }
+      : { name: "", contact: "", value: 0, stage: "new", owner: currentUser.initials, source: "cold", referred_by_client_id: "", referred_by_name: "" },
   });
   const onSubmit = (f: LeadForm) => (editing ? updateLead(editing.id, f) : addLead(f));
+  const isReferral = watch("source") === "referral";
 
   return (
     <Shell title={editing ? "Редакция на сделка" : "Нова сделка"} onClose={closeModal}>
@@ -422,9 +423,18 @@ function LeadModal() {
           <div className="bm-field"><label className="bm-label">Контакт</label><input className="bm-input" {...register("contact")} placeholder="напр. Иван Петров" /></div>
           <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Стойност (EUR)</label><input className="bm-input" type="number" {...register("value", { valueAsNumber: true })} /><Err msg={errors.value?.message} /></div>
-            <div className="bm-field"><label className="bm-label">Етап</label><select className="bm-select" {...register("stage")}><option value="new">Нов</option><option value="contacted">Свързан</option><option value="proposal">Оферта</option><option value="won">Спечелен</option><option value="lost">Загубен</option></select></div>
+            <div className="bm-field"><label className="bm-label">Етап</label><select className="bm-select" {...register("stage")}>{PIPELINE_STAGES.map((s) => <option key={s.key} value={s.key}>{s.title}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
           </div>
+          <div className="bm-form-row">
+            <div className="bm-field"><label className="bm-label">Източник</label><select className="bm-select" {...register("source")}>{LEAD_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
+            {isReferral && (
+              <div className="bm-field"><label className="bm-label">Препоръчан от (клиент)</label><select className="bm-select" {...register("referred_by_client_id")}><option value="">— външен / впиши име —</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+            )}
+          </div>
+          {isReferral && (
+            <div className="bm-field"><label className="bm-label">…или име на препоръчител (ако не е клиент)</label><input className="bm-input" {...register("referred_by_name")} placeholder="напр. Мария Георгиева" /></div>
+          )}
         </div>
         <div className="bm-modal__footer" style={{ justifyContent: editing && currentUser.isAdmin ? "space-between" : "flex-end" }}>
           {editing && currentUser.isAdmin && (

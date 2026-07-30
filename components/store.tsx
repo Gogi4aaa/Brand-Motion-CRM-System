@@ -531,8 +531,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser.initials]);
 
   // ---- Leads (pipeline) ----
+  // Препоръката е валидна само при source==="referral"; иначе нулираме връзката,
+  // за да не увисва стар клиент/име при смяна на източника.
+  const leadReferral = (f: LeadForm) => ({
+    source: f.source,
+    referred_by_client_id: f.source === "referral" ? (f.referred_by_client_id || null) : null,
+    referred_by_name: f.source === "referral" ? f.referred_by_name : "",
+  });
+
   const addLead = useCallback((f: LeadForm) => {
-    const row = { id: "l-" + Date.now(), name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner };
+    const row = { id: "l-" + Date.now(), name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner, ...leadReferral(f) };
     setLeads((list) => [...list, row]);
     sb()?.from("leads").insert(row).then(({ error }) => error && console.error("[BrandMotion] addLead failed:", error));
     logActivity(`добави клиент-възможност ${f.name}`, "admin");
@@ -540,7 +548,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [logActivity]);
 
   const updateLead = useCallback((id: string, f: LeadForm) => {
-    const patch = { name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner };
+    const patch = { name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner, ...leadReferral(f) };
     setLeads((list) => list.map((l) => (l.id === id ? { ...l, ...patch } : l)));
     sb()?.from("leads").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateLead failed:", error));
     setModal(null);

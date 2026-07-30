@@ -334,7 +334,9 @@ export const invStatusMeta = (s: InvStatus) =>
 export const taskStatusLabel = (s: TaskStatus) =>
   ({ todo: "За правене", inprogress: "В процес", review: "За преглед", done: "Готово" }[s]);
 
-export type LeadStage = "new" | "contacted" | "proposal" | "won" | "lost";
+export type LeadStage = "new" | "meeting" | "proposal" | "won" | "lost";
+// Откъде идва лийдът. „referral" отключва връзка към препоръчалия (клиент/име).
+export type LeadSource = "cold" | "referral" | "inbound" | "social" | "event" | "other";
 
 export interface Lead {
   id: string;
@@ -343,12 +345,15 @@ export interface Lead {
   value: number;
   stage: LeadStage;
   owner: string;
+  source?: LeadSource;
+  referred_by_client_id?: string | null; // при „Препоръка": свързан съществуващ клиент
+  referred_by_name?: string;             // …или свободно име на външен препоръчител
   client_id?: string | null; // set once the won lead is onboarded into a client
 }
 
 export const PIPELINE_STAGES: { key: LeadStage; title: string; dot: string }[] = [
-  { key: "new", title: "Нови", dot: "var(--bm-slate-400)" },
-  { key: "contacted", title: "Свързани", dot: "var(--bm-info-500)" },
+  { key: "new", title: "Потенциални клиенти", dot: "var(--bm-slate-400)" },
+  { key: "meeting", title: "Проведена среща", dot: "var(--bm-info-500)" },
   { key: "proposal", title: "Оферта", dot: "var(--bm-warning-500)" },
   { key: "won", title: "Спечелени", dot: "var(--bm-success-500)" },
   { key: "lost", title: "Загубени", dot: "var(--bm-danger-500)" },
@@ -356,12 +361,31 @@ export const PIPELINE_STAGES: { key: LeadStage; title: string; dot: string }[] =
 
 export const leadStageMeta = (s: LeadStage) =>
   ({
-    new: { cls: "bm-badge--neutral", label: "Нов" },
-    contacted: { cls: "bm-badge--info", label: "Свързан" },
+    new: { cls: "bm-badge--neutral", label: "Потенциален" },
+    meeting: { cls: "bm-badge--info", label: "Среща" },
     proposal: { cls: "bm-badge--warning", label: "Оферта" },
     won: { cls: "bm-badge--success", label: "Спечелен" },
     lost: { cls: "bm-badge--danger", label: "Загубен" },
   }[s]);
+
+export const LEAD_SOURCES: { id: LeadSource; label: string }[] = [
+  { id: "cold", label: "Студен контакт" },
+  { id: "referral", label: "Препоръка" },
+  { id: "inbound", label: "Входящо запитване" },
+  { id: "social", label: "Социални мрежи" },
+  { id: "event", label: "Събитие" },
+  { id: "other", label: "Друго" },
+];
+
+export const leadSourceMeta = (s: LeadSource | undefined) =>
+  ({
+    cold: { cls: "bm-badge--neutral", label: "Студен контакт" },
+    referral: { cls: "bm-badge--brand", label: "Препоръка" },
+    inbound: { cls: "bm-badge--info", label: "Входящо" },
+    social: { cls: "bm-badge--info", label: "Соц. мрежи" },
+    event: { cls: "bm-badge--warning", label: "Събитие" },
+    other: { cls: "bm-badge--neutral", label: "Друго" },
+  }[s || "cold"]);
 
 export const seedLeads: Lead[] = [];
 

@@ -11,7 +11,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Табло", icon: "dashboard" },
   { href: "/tasks", label: "Задачи", icon: "tasks" },
   { href: "/ideas", label: "Идеи", icon: "comment" },
-  { href: "/pipeline", label: "Сделки", icon: "pipeline" },
+  { href: "/pipeline", label: "Продажби", icon: "pipeline" },
   { href: "/clients", label: "Клиенти", icon: "clients" },
   { href: "/production", label: "Продукция", icon: "production" },
   { href: "/campaigns", label: "Кампании", icon: "campaign" },

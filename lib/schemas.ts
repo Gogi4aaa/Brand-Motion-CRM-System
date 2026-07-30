@@ -52,8 +52,11 @@ export const leadSchema = z.object({
   name: z.string().trim().min(1, "Deal name is required"),
   contact: z.string().trim(),
   value: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),
-  stage: z.enum(["new", "contacted", "proposal", "won", "lost"]),
+  stage: z.enum(["new", "meeting", "proposal", "won", "lost"]),
   owner: z.string().trim().min(1, "Owner is required"),
+  source: z.enum(["cold", "referral", "inbound", "social", "event", "other"]),
+  referred_by_client_id: z.string().trim(), // празно = няма свързан клиент
+  referred_by_name: z.string().trim(),      // свободно име на препоръчител
 });
 export type LeadForm = z.infer<typeof leadSchema>;
 
