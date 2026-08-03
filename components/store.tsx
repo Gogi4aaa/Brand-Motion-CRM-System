@@ -28,6 +28,7 @@ import {
   type Idea,
   type IdeaStatus,
   type Approval,
+  type ShootBooking,
   type AccessRole,
   type StageStatus,
   type Client,
@@ -153,6 +154,10 @@ interface Store {
   cycles: ContentCycle[];
   ideas: Idea[];
   approvals: Approval[];
+  bookings: ShootBooking[];
+  approveBooking: (id: string) => void;
+  declineBooking: (id: string) => void;
+  getBookingFeedUrl: () => Promise<string | null>;
   clientConnections: ClientConnection[];
   currentUser: CurrentUser;
   loading: boolean;
@@ -265,6 +270,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [cycles, setCycles] = useState<ContentCycle[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>(seedIdeas);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [bookings, setBookings] = useState<ShootBooking[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
   const [videoMetrics, setVideoMetrics] = useState<VideoMetric[]>([]);
   const [brandProfiles, setBrandProfiles] = useState<BrandProfile[]>([]);
@@ -286,7 +292,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const sb = createClient();
-        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv, vm] = await Promise.all([
+        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv, vm, bk] = await Promise.all([
           sb.from("clients").select("*").order("created_at"),
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
@@ -305,6 +311,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("ideas").select("*").order("created_at", { ascending: false }),
           sb.from("approvals").select("*").order("created_at", { ascending: false }),
           sb.from("video_metrics").select("*"),
+          sb.from("shoot_bookings").select("*").order("date"),
         ]);
         // Липсваща таблица (миграция 0029 още не е пусната) просто оставя
         // празни бранд профили — грешката не пипа останалите данни.
@@ -328,6 +335,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (idv.data) setIdeas((idv.data as (Omit<Idea, "client"> & { client_id: string | null })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (apv.data) setApprovals(apv.data as Approval[]);
         if (vm.data) setVideoMetrics(vm.data as VideoMetric[]);
+        if (bk.data) setBookings(bk.data as ShootBooking[]);
         const uid = auth.data.user?.id;
         if (uid) {
           const me = (tm.data as (TeamMember & { role?: string })[] | null)?.find((p) => p.id === uid);
@@ -418,6 +426,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         } else if (payload.eventType === "DELETE") {
           const id = (payload.old as { id?: string })?.id;
           if (id) setTasks((list) => list.filter((x) => x.id !== id));
+        }
+      })
+      .subscribe();
+    return () => { client.removeChannel(ch); };
+  }, [rtToken]);
+
+  // Live снимачни дни: нова заявка от клиент (portal_book) или одобрение се
+  // появява веднага в админ панела (shoot_bookings е в supabase_realtime — 0036).
+  useEffect(() => {
+    if (!supabaseConfigured || !rtToken) return;
+    const client = createClient();
+    client.realtime.setAuth(rtToken);
+    const ch = client
+      .channel("bookings-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "shoot_bookings" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          const b = payload.new as ShootBooking;
+          setBookings((list) => (list.some((x) => x.id === b.id) ? list : [...list, b]));
+        } else if (payload.eventType === "UPDATE") {
+          const b = payload.new as ShootBooking;
+          setBookings((list) => list.map((x) => (x.id === b.id ? b : x)));
+        } else if (payload.eventType === "DELETE") {
+          const id = (payload.old as { id?: string })?.id;
+          if (id) setBookings((list) => list.filter((x) => x.id !== id));
         }
       })
       .subscribe();
@@ -981,6 +1013,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return token;
   }, [notifyError]);
 
+  // ---- Снимачни дни (админ) ----
+  const decideBooking = useCallback((id: string, status: "approved" | "declined") => {
+    const decided_at = new Date().toISOString();
+    setBookings((list) => list.map((b) => (b.id === id ? { ...b, status, decided_at } : b)));
+    sb()?.from("shoot_bookings").update({ status, decided_at }).eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] decideBooking failed:", error); notifyError("Решението не се запази: " + error.message); }
+    });
+    const b = bookings.find((x) => x.id === id);
+    logActivity(`${status === "approved" ? "одобри" : "отказа"} снимачен ден ${b?.date || ""}`, "admin");
+  }, [bookings, logActivity, notifyError]);
+
+  const approveBooking = useCallback((id: string) => decideBooking(id, "approved"), [decideBooking]);
+  const declineBooking = useCallback((id: string) => decideBooking(id, "declined"), [decideBooking]);
+
+  // Абонаментен .ics линк за личния календар: reuse активния токен или минтва нов.
+  const getBookingFeedUrl = useCallback(async (): Promise<string | null> => {
+    const client = sb();
+    if (!client) return null;
+    const { data } = await client.from("calendar_feeds").select("token").eq("active", true).limit(1);
+    const token = data?.length ? (data[0].token as string)
+      : "cf" + (typeof crypto !== "undefined" && "randomUUID" in crypto ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : Math.random().toString(36).slice(2) + Date.now());
+    if (!data?.length) {
+      const { error } = await client.from("calendar_feeds").insert({ token });
+      if (error) { console.error("[BrandMotion] getBookingFeedUrl failed:", error); notifyError("Календарният линк не се създаде: " + error.message + " — провери миграция 0036."); return null; }
+    }
+    return `${window.location.origin}/api/bookings/ics/${token}`;
+  }, [notifyError]);
+
   // Бранд въпросникът (таб „Бранд" + модалът за редакция/импорт). Освен
   // brand_profiles огледално обновява и трите AI полета върху clients
   // (brand_voice/target_audience/brand_assets_url) — AI контекстът ги чете.
@@ -1294,6 +1354,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- Invoices ----
   const addInvoice = useCallback((f: InvoiceForm) => {
+    const amount = Math.round((f.amount || 0) * 100) / 100; // до стотинки, без float артефакти
     setInvoices((list) => {
       // ID = най-голям съществуващ номер + 1 (не по брой — иначе след триене на
       // фактура следващото добавяне регенерира зает ID и удря duplicate key 409).
@@ -1302,17 +1363,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return Number.isNaN(n) ? mx : Math.max(mx, n);
       }, 1051);
       const id = "INV-" + (maxNum + 1);
-      const row = { id, client_id: f.client, amount: f.amount, status: f.status, issued: "Today", due: f.due || "—" };
+      const row = { id, client_id: f.client, amount, status: f.status, issued: "Today", due: f.due || "—" };
       sb()?.from("invoices").insert(row).then(({ error }) => error && console.error("[BrandMotion] addInvoice failed:", error));
-      return [{ id, client: f.client, amount: f.amount, status: f.status, issued: "Today", due: f.due || "—" }, ...list];
+      return [{ id, client: f.client, amount, status: f.status, issued: "Today", due: f.due || "—" }, ...list];
     });
     logActivity(`създаде фактура за ${clients.find((c) => c.id === f.client)?.name || f.client}`, "admin");
     setModal(null);
   }, [clients, logActivity]);
 
   const updateInvoice = useCallback((id: string, f: InvoiceForm) => {
-    const patch = { client_id: f.client, amount: f.amount, status: f.status, due: f.due || "—" };
-    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount: f.amount, status: f.status, due: f.due || "—" } : iv)));
+    const amount = Math.round((f.amount || 0) * 100) / 100;
+    const patch = { client_id: f.client, amount, status: f.status, due: f.due || "—" };
+    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount, status: f.status, due: f.due || "—" } : iv)));
     sb()?.from("invoices").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateInvoice failed:", error));
     logActivity(`обнови фактура ${id}`, "admin");
     setModal(null);
@@ -1433,6 +1495,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
     advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
+    bookings, approveBooking, declineBooking, getBookingFeedUrl,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,

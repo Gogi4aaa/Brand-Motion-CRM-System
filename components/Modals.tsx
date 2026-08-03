@@ -1219,7 +1219,7 @@ function InvoiceModal() {
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
           <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
           <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Сума (EUR)</label><input className="bm-input" type="number" {...register("amount", { valueAsNumber: true })} placeholder="0" /><Err msg={errors.amount?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Сума (EUR)</label><input className="bm-input" type="number" step="0.01" {...register("amount", { valueAsNumber: true })} placeholder="0.00" /><Err msg={errors.amount?.message} /></div>
             <div className="bm-field"><label className="bm-label">Падеж</label><input className="bm-input" {...register("due")} placeholder="15 юли" /></div>
           </div>
           <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="draft">Чернова</option><option value="pending">Чакаща</option><option value="overdue">Просрочена</option><option value="paid">Платена</option></select></div>

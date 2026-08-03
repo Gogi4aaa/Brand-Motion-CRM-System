@@ -10,7 +10,7 @@
 //   * резултатите на публикуваните видеа.
 // Internal details (сценарии, изпълнители, вътрешни бележки) never reach here.
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 
 interface PortalStage { key: string; status: "todo" | "doing" | "done" | "blocked" }
 interface PortalMetrics { platform: string; url: string; views: number; likes: number; comments: number; shares: number; updated_at: string }
@@ -21,9 +21,12 @@ interface PortalItem {
 }
 interface PortalInvoice { id: string; amount: number; status: "paid" | "pending" | "overdue"; issued: string; due: string }
 interface PortalCycle { month: string; target_count: number; done_count: number; phase: string }
+interface PortalBusy { date: string; start: string | null; end: string | null }
+interface PortalBooking { id: string; date: string; start: string | null; end: string | null; status: "pending" | "approved" | "declined" }
 interface PortalData {
   client_name: string; monthly_fee: number; paid_total: number; pending_total: number;
   first_paid_at: string | null; invoices: PortalInvoice[]; cycle: PortalCycle | null; items: PortalItem[];
+  busy: PortalBusy[]; bookings: PortalBooking[];
 }
 
 const TYPE_LABELS: Record<string, string> = { promo: "Промо", info: "Инфо", reel: "Рийл", project: "Проект", post: "Пост" };
@@ -44,7 +47,8 @@ const INV_LABELS: Record<string, { label: string; cls: string }> = {
 const MONTHS = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
 
 const nf = new Intl.NumberFormat("bg-BG");
-const money = (n: number) => "€" + nf.format(n);
+// Показва стотинки само когато сумата има такива (€50,30), иначе кръгло (€1 425).
+const money = (n: number) => "€" + (n || 0).toLocaleString("bg-BG", { minimumFractionDigits: Math.round((n || 0) * 100) % 100 !== 0 ? 2 : 0, maximumFractionDigits: 2 });
 const fmtDay = (iso: string) => {
   const d = new Date(iso + "T00:00:00");
   return isNaN(d.getTime()) ? iso : `${d.getDate()} ${MONTHS[d.getMonth()]}`;
@@ -88,7 +92,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() =>
     fetch(`/api/portal/${token}`)
       .then(async (r) => {
         const j = await r.json();
@@ -96,8 +100,36 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
         setData(j as PortalData);
       })
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [token]);
+      .finally(() => setLoading(false)), [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ---- Заявка за снимачен ден (визуален календар + избор на ден) ----
+  const [bkMonthOff, setBkMonthOff] = useState(0);
+  const [bkDate, setBkDate] = useState("");
+  const [bkStart, setBkStart] = useState("");
+  const [bkEnd, setBkEnd] = useState("");
+  const [bkNote, setBkNote] = useState("");
+  const [bkBusy, setBkBusy] = useState(false);
+  const [bkMsg, setBkMsg] = useState("");
+  const [bkErr, setBkErr] = useState("");
+  const submitBooking = async () => {
+    setBkErr(""); setBkMsg("");
+    if (!bkDate) { setBkErr("Избери дата."); return; }
+    setBkBusy(true);
+    try {
+      const r = await fetch(`/api/portal/${token}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: bkDate, start: bkStart, end: bkEnd, note: bkNote }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Грешка");
+      setBkMsg("Заявката е изпратена — очаквай потвърждение.");
+      setBkDate(""); setBkStart(""); setBkEnd(""); setBkNote("");
+      await load();
+    } catch (e) { setBkErr(e instanceof Error ? e.message : "Грешка"); }
+    finally { setBkBusy(false); }
+  };
 
   const items = data?.items || [];
   const inProgress = items.filter((i) => !i.published);
@@ -130,6 +162,24 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
   const cycleDone = !!cycle && cycle.target_count > 0 && cycle.done_count >= cycle.target_count;
   const pendingInv = (data?.invoices || []).find((i) => i.status === "pending" || i.status === "overdue");
   const showPayReminder = cycleDone || !!pendingInv;
+
+  // ---- Данни за визуалния календар за снимачни дни ----
+  const activeBookings = (data?.bookings || []).filter((b) => b.status !== "declined");
+  const atLimit = activeBookings.length >= 3;
+  const bkFirst = new Date(now.getFullYear(), now.getMonth() + bkMonthOff, 1);
+  const bkY = bkFirst.getFullYear();
+  const bkM = bkFirst.getMonth();
+  const bkYmKey = `${bkY}-${String(bkM + 1).padStart(2, "0")}`;
+  const bkFirstDow = (bkFirst.getDay() + 6) % 7; // понеделник = 0
+  const bkDays = new Date(bkY, bkM + 1, 0).getDate();
+  const bkCells: (number | null)[] = [...Array(bkFirstDow).fill(null), ...Array.from({ length: bkDays }, (_, i) => i + 1)];
+  while (bkCells.length % 7 !== 0) bkCells.push(null);
+  // Заетите одобрени слотове по ден (всички клиенти, без имена) + собствените заявки.
+  const busyByDate = new Map<string, PortalBusy[]>();
+  for (const b of data?.busy || []) busyByDate.set(b.date, [...(busyByDate.get(b.date) || []), b]);
+  const mineByDate = new Map<string, PortalBooking[]>();
+  for (const b of activeBookings) mineByDate.set(b.date, [...(mineByDate.get(b.date) || []), b]);
+  const selectedBusy = bkDate ? busyByDate.get(bkDate) || [] : [];
 
   return (
     <div className="pt-page">
@@ -187,6 +237,12 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
         /* Подсказката „тапни ден“ е нужна само там, където клетките са точки. */
         .pt-cal__hint { display: none; }
         @media (max-width: 600px) { .pt-cal__hint { display: block; } }
+        /* Заявка за снимачен ден: часовете От/До един до друг. */
+        .pt-book__grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--bm-space-3); }
+        .pt-book__f { display: flex; flex-direction: column; gap: 4px; }
+        /* „зает" маркер в календарна клетка (одобрен слот на друг клиент, без име). */
+        .pt-book__busy { margin-top: auto; display: flex; }
+        .pt-book__busy span { font-size: 9px; font-weight: 700; letter-spacing: .02em; color: var(--bm-text-subtle); background: var(--bm-surface-2); border: 1px solid var(--bm-border); border-radius: 99px; padding: 0 6px; }
         /* Изскачащ прозорец „видеа за деня“. */
         .pt-dv { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: flex; align-items: flex-end; justify-content: center; padding: var(--bm-space-4); z-index: 50; }
         @media (min-width: 601px) { .pt-dv { align-items: center; } }
@@ -289,6 +345,93 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                 <p className="pt-cal__hint bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>Тапни ден с точки, за да видиш видеата за него.</p>
                 {monthAgenda.length === 0 && (
                   <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма планирани видеа за {MONTHS[m]} — разгледай съседните месеци със стрелките.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Заяви снимачен ден — заявката чака потвърждение от екипа. */}
+            <div className="pt-card">
+              <div className="pt-card__head"><h2>📸 Заяви снимачен ден</h2><span className={"bm-badge " + (atLimit ? "bm-badge--warning" : "bm-badge--brand")}>{activeBookings.length}/3</span></div>
+              <div className="pt-card__body" style={{ gap: "var(--bm-space-4)" }}>
+                <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Цъкни на ден от календара, за да заявиш снимки. Можеш да имаш до 3 активни заявки. Зелено = твои одобрени, жълто = твои чакащи, точка = вече зает час.</p>
+
+                {atLimit && <div className="bm-alert bm-alert--warning">Имаш 3 активни заявки — това е максимумът. Изчакай потвърждение или се свържи с нас за още.</div>}
+
+                {/* Навигация по месеци */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <button type="button" className="pt-mnav" aria-label="Предишен месец" onClick={() => setBkMonthOff((o) => o - 1)} style={{ border: "1px solid var(--bm-border)", background: "var(--bm-surface)", borderRadius: 8, width: 28, height: 28, cursor: "pointer", fontWeight: 700, color: "var(--bm-text-muted)" }}>‹</button>
+                  <span style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)", textTransform: "capitalize" }}>{MONTHS[bkM]} {bkY}</span>
+                  <button type="button" className="pt-mnav" aria-label="Следващ месец" onClick={() => setBkMonthOff((o) => o + 1)} style={{ border: "1px solid var(--bm-border)", background: "var(--bm-surface)", borderRadius: 8, width: 28, height: 28, cursor: "pointer", fontWeight: 700, color: "var(--bm-text-muted)" }}>›</button>
+                </div>
+
+                <div className="pt-grid">
+                  {["пн", "вт", "ср", "чт", "пт", "сб", "нд"].map((w) => <div key={w} className="pt-grid__wd">{w}</div>)}
+                  {bkCells.map((day, i) => {
+                    if (!day) return <div key={"e" + i} className="pt-grid__cell pt-grid__cell--empty" />;
+                    const dIso = `${bkYmKey}-${String(day).padStart(2, "0")}`;
+                    const past = dIso < todayIso;
+                    const mine = mineByDate.get(dIso) || [];
+                    const busy = busyByDate.get(dIso) || [];
+                    const selectable = !past && !atLimit;
+                    const sel = dIso === bkDate;
+                    return (
+                      <div
+                        key={dIso}
+                        className={"pt-grid__cell" + (dIso === todayIso ? " pt-grid__cell--today" : "")}
+                        onClick={selectable ? () => { setBkDate(dIso); setBkErr(""); setBkMsg(""); } : undefined}
+                        style={{ cursor: selectable ? "pointer" : "default", opacity: past ? 0.45 : 1, outline: sel ? "2px solid var(--bm-brand-500)" : undefined, outlineOffset: sel ? -2 : undefined }}
+                      >
+                        <div className="pt-grid__day">{day}</div>
+                        {mine.map((b) => (
+                          <div key={b.id} className={"pt-ev" + (b.status === "approved" ? " pt-ev--done" : "")} style={b.status === "pending" ? { background: "var(--bm-warning-50)", color: "var(--bm-warning-700)", borderLeftColor: "var(--bm-warning-500)" } : undefined} title={b.status === "approved" ? "Одобрен" : "Чака одобрение"}>{b.start || "снимки"}</div>
+                        ))}
+                        {mine.length === 0 && busy.length > 0 && (
+                          <div className="pt-book__busy"><span>зает</span></div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Форма за избрания ден */}
+                {bkDate && !atLimit && (
+                  <div style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-lg)", padding: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", background: "var(--bm-surface-2)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 700 }}>Снимачен ден · {fmtDay(bkDate)}</div>
+                      <button type="button" className="bm-btn bm-btn--ghost bm-btn--sm" onClick={() => setBkDate("")}>Смени ден</button>
+                    </div>
+                    {selectedBusy.length > 0 && (
+                      <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>Вече заети този ден: {selectedBusy.map((b) => b.start ? `${b.start}${b.end ? "–" + b.end : ""}` : "цял ден").join(", ")}</div>
+                    )}
+                    <div className="pt-book__grid">
+                      <label className="pt-book__f"><span className="bm-label">От</span><input className="bm-input" type="time" value={bkStart} onChange={(e) => setBkStart(e.target.value)} /></label>
+                      <label className="pt-book__f"><span className="bm-label">До</span><input className="bm-input" type="time" value={bkEnd} onChange={(e) => setBkEnd(e.target.value)} /></label>
+                    </div>
+                    <label className="pt-book__f"><span className="bm-label">Бележка (локация, детайли — по избор)</span><input className="bm-input" value={bkNote} onChange={(e) => setBkNote(e.target.value)} placeholder="напр. Студио / екстериор, реквизит…" /></label>
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button className="bm-btn bm-btn--primary" disabled={bkBusy} onClick={submitBooking}>{bkBusy ? "Изпращане…" : "Заяви деня"}</button>
+                    </div>
+                  </div>
+                )}
+
+                {bkErr && <div className="bm-alert bm-alert--danger">{bkErr}</div>}
+                {bkMsg && <div className="bm-alert bm-alert--success">{bkMsg}</div>}
+
+                {(data.bookings?.length || 0) > 0 && (
+                  <div>
+                    <div className="bm-label" style={{ marginBottom: 6 }}>Твоите заявки</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {data.bookings.map((b) => {
+                        const meta = b.status === "approved" ? { c: "bm-badge--success", t: "Одобрен" } : b.status === "declined" ? { c: "bm-badge--danger", t: "Отказан" } : { c: "bm-badge--warning", t: "Чака одобрение" };
+                        return (
+                          <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: "var(--bm-text-sm)" }}>
+                            <span>{fmtDay(b.date)}{b.start ? ` · ${b.start}${b.end ? "–" + b.end : ""}` : ""}</span>
+                            <span className={"bm-badge " + meta.c}>{meta.t}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

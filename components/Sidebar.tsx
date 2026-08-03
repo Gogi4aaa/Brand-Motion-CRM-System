@@ -14,6 +14,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/pipeline", label: "Продажби", icon: "pipeline" },
   { href: "/clients", label: "Клиенти", icon: "clients" },
   { href: "/production", label: "Продукция", icon: "production" },
+  { href: "/bookings", label: "Снимачни дни", icon: "calendar" },
   { href: "/campaigns", label: "Кампании", icon: "campaign" },
   { href: "/invoices", label: "Фактури", icon: "invoices" },
   { href: "/analytics", label: "Анализи", icon: "analytics" },

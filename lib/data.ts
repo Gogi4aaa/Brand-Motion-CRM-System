@@ -168,6 +168,7 @@ export const NAV_ACCESS: Record<string, AccessRole[]> = {
   social: ["admin", "manager"],
   team: ["admin", "manager"],
   invoices: ["admin"],
+  bookings: ["admin"],
 };
 
 export const canAccess = (role: AccessRole, key: string) =>
@@ -297,9 +298,13 @@ export const tasks: Task[] = [];
 
 // ---- Display helpers ----
 // Валутата на агенцията е евро; bg-BG форматиране (интервал за хиляди).
-// Сумите се показват ТОЧНИ навсякъде (€1 425, не €1.4k) — fmtK остава като
-// псевдоним за старите извиквания из KPI картите.
-export const fmtFull = (n: number) => "€" + Math.round(n).toLocaleString("bg-BG");
+// Сумите се показват ТОЧНИ навсякъде (€1 425, не €1.4k). Показваме стотинки само
+// когато сумата има такива (€50,30), а кръглите остават без десетични (€1 425).
+// fmtK остава псевдоним за старите извиквания из KPI картите.
+export const fmtFull = (n: number) => {
+  const hasCents = Math.round((n || 0) * 100) % 100 !== 0;
+  return "€" + (n || 0).toLocaleString("bg-BG", { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 });
+};
 export const fmtK = fmtFull;
 
 // Начало на текущия месец + помощник за „платено този месец“ сметките.
@@ -596,6 +601,30 @@ export const approvalStatusMeta = (s: ApprovalStatus) =>
     approved: { cls: "bm-badge--success", label: "Одобрено от клиента" },
     changes_requested: { cls: "bm-badge--danger", label: "Иска промени" },
   }[s]);
+
+// ---- Снимачни дни (резервации от портала, одобрение от админ) ----
+export type BookingStatus = "pending" | "approved" | "declined";
+export interface ShootBooking {
+  id: string;
+  client_id: string;
+  date: string;       // ISO yyyy-mm-dd
+  start_time?: string | null; // 'HH:MM' or null
+  end_time?: string | null;
+  note: string;
+  status: BookingStatus;
+  created_at?: string;
+  decided_at?: string | null;
+}
+export const bookingStatusMeta = (s: BookingStatus) =>
+  ({
+    pending: { cls: "bm-badge--warning", label: "Чака одобрение" },
+    approved: { cls: "bm-badge--success", label: "Одобрен" },
+    declined: { cls: "bm-badge--danger", label: "Отказан" },
+  }[s]);
+
+// „10:00–14:00" от start/end (за чипове и списъци); празно ако няма часове.
+export const bookingTimeLabel = (b: Pick<ShootBooking, "start_time" | "end_time">) =>
+  b.start_time ? `${b.start_time}${b.end_time ? "–" + b.end_time : ""}` : "";
 
 // ---- New-client onboarding ----
 // Standard checklist created as tasks when a lead is converted into a client.
