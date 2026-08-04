@@ -11,7 +11,7 @@ const ROLE_HELP: Record<AccessRole, string> = {
 };
 
 export default function TeamPage() {
-  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, openModal } = useStore();
+  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, setMemberRate, deleteMember, approveMember, openModal } = useStore();
   // Новите регистрации чакат одобрение; в основната таблица влизат само одобрените.
   const pending = team.filter((m) => m.approved === false);
   const members = team.filter((m) => m.approved !== false);
@@ -68,7 +68,7 @@ export default function TeamPage() {
 
       <div className="bm-table-wrap">
         <table className="bm-table">
-          <thead><tr><th>Член</th><th>Ниво на достъп</th><th>Роли в продукция</th>{currentUser.isAdmin && <th>Достъп до клиенти</th>}<th className="bm-table__num">Отворени задачи</th>{currentUser.isAdmin && <th />}</tr></thead>
+          <thead><tr><th>Член</th><th>Ниво на достъп</th><th>Роли в продукция</th>{currentUser.isAdmin && <th>Достъп до клиенти</th>}{currentUser.isAdmin && <th className="bm-table__num" title="Дефолтна ставка на видео — попълва се автоматично при насрочване">Ставка (€)</th>}<th className="bm-table__num">Отворени задачи</th>{currentUser.isAdmin && <th />}</tr></thead>
           <tbody>
             {members.map((m) => {
               const open = tasks.filter((t) => t.assignee === m.initials && t.status !== "done").length;
@@ -145,6 +145,22 @@ export default function TeamPage() {
                     )}
                   </td>
                   )}
+                  {currentUser.isAdmin && (
+                    <td className="bm-table__num">
+                      {m.role === "admin" ? (
+                        <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>—</span>
+                      ) : (
+                        <input
+                          type="number" step="0.01" min="0"
+                          defaultValue={m.pay_rate ?? 15}
+                          key={m.pay_rate ?? "15"}
+                          onBlur={(e) => { const v = parseFloat(e.currentTarget.value); if (!Number.isNaN(v) && v !== (m.pay_rate ?? 15)) setMemberRate(m.id, v); }}
+                          style={{ width: 74, textAlign: "right", padding: "4px 6px", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-sm)", background: "var(--bm-surface)", color: "var(--bm-text)" }}
+                          title="Дефолтна ставка на видео"
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="bm-table__num">{open}</td>
                   {currentUser.isAdmin && (
                     <td style={{ textAlign: "right" }}>
@@ -160,7 +176,7 @@ export default function TeamPage() {
                 </tr>
               );
             })}
-            {members.length === 0 && <tr><td colSpan={currentUser.isAdmin ? 6 : 4} style={{ textAlign: "center", color: "var(--bm-text-subtle)", padding: "var(--bm-space-8)" }}>Все още няма членове.</td></tr>}
+            {members.length === 0 && <tr><td colSpan={currentUser.isAdmin ? 7 : 4} style={{ textAlign: "center", color: "var(--bm-text-subtle)", padding: "var(--bm-space-8)" }}>Все още няма членове.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -3,7 +3,7 @@ import { z } from "zod";
 export const clientSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   industry: z.string().trim().min(1, "Industry is required"),
-  status: z.enum(["Active", "At risk", "Onboarding"]),
+  status: z.enum(["Active", "At risk", "Onboarding", "Churned"]),
   mrr: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),
   owner: z.string().trim().min(1, "Owner is required"),
   health: z.enum(["good", "watch", "risk"]),
@@ -33,7 +33,6 @@ export const taskSchema = z.object({
   priority: z.enum(["high", "medium", "low"]),
   due: z.string(),
   estimate_hours: z.number({ message: "Въведи число" }).min(0, "0 или повече"),
-  pay_amount: z.number({ message: "Въведи число" }).min(0, "0 или повече"),
   assignee: z.string(),
   team_visible: z.boolean(),
 });

@@ -7,12 +7,13 @@ export type InvStatus = "paid" | "pending" | "overdue" | "draft";
 export type TaskStatus = "todo" | "inprogress" | "review" | "done";
 export type Priority = "high" | "medium" | "low";
 
+export type ClientStatus = "Active" | "At risk" | "Onboarding" | "Churned";
 export interface Client {
   id: string;
   name: string;
   initials: string;
   industry: string;
-  status: "Active" | "At risk" | "Onboarding";
+  status: ClientStatus;
   mrr: number;
   owner: string;
   health: Health;
@@ -24,7 +25,16 @@ export interface Client {
   brand_voice?: string;
   target_audience?: string;
   brand_assets_url?: string;
+  created_at?: string;              // кога е добавен клиентът (за задържане)
+  churned_at?: string | null;       // кога е напуснал (status="Churned")
 }
+export const clientStatusMeta = (s: ClientStatus) =>
+  ({
+    Active: { cls: "bm-badge--success", label: "Активен" },
+    "At risk": { cls: "bm-badge--warning", label: "Риск" },
+    Onboarding: { cls: "bm-badge--info", label: "Включване" },
+    Churned: { cls: "bm-badge--danger", label: "Напуснал" },
+  }[s]);
 
 export type AnalysisStatus = "not_started" | "in_progress" | "done";
 export const analysisStatusMeta = (s: AnalysisStatus) =>
@@ -168,6 +178,7 @@ export const NAV_ACCESS: Record<string, AccessRole[]> = {
   social: ["admin", "manager"],
   team: ["admin", "manager"],
   invoices: ["admin"],
+  payouts: ["admin", "manager", "worker"], // всеки вижда САМО своите (RLS); админ вижда всички
   bookings: ["admin"],
 };
 
@@ -190,6 +201,7 @@ export interface TeamMember {
   approved?: boolean; // false = чака одобрение от админ (нова регистрация)
   email?: string; // за валидиращия имейл при одобрение
   avatar_url?: string; // публичен URL на профилната снимка (Storage bucket „avatars“)
+  pay_rate?: number; // дефолтна ставка €/видео (worker_rates; вижда се само от админ/себе си)
 }
 
 // ---- Video production pipeline ----
@@ -310,6 +322,51 @@ export const fmtK = fmtFull;
 // Начало на текущия месец + помощник за „платено този месец“ сметките.
 export const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime(); };
 export const inCurrentMonth = (iso?: string | null) => !!iso && new Date(iso).getTime() >= monthStart();
+
+// ---- Приход / печалба / задържане (Анализи + Възнаграждения) ----
+// Реално събрано = сумата на ПЛАТЕНИТЕ фактури (опц. само текущия месец по created_at).
+export const collectedRevenue = (invoices: Invoice[], onlyMonth = false) =>
+  invoices.filter((i) => i.status === "paid" && (!onlyMonth || inCurrentMonth(i.created_at)))
+    .reduce((a, i) => a + (i.amount || 0), 0);
+
+// Изплатено на работници = сумата на pay_amount за ПЛАТЕНИТЕ задачи (месец = по paid_at).
+export const workerPaidCost = (tasks: Task[], onlyMonth = false) =>
+  tasks.filter((t) => t.paid && (!onlyMonth || inCurrentMonth(t.paid_at)))
+    .reduce((a, t) => a + (t.pay_amount || 0), 0);
+
+// LTV на клиент = сумата на всичките му платени фактури.
+export const clientLtv = (invoices: Invoice[], clientId: string) =>
+  invoices.filter((i) => i.client === clientId && i.status === "paid").reduce((a, i) => a + (i.amount || 0), 0);
+
+// Задържане в дни: от created_at до churned_at (или до сега, ако е активен).
+export const clientTenureDays = (c: Client) => {
+  if (!c.created_at) return 0;
+  const start = new Date(c.created_at).getTime();
+  const end = c.churned_at ? new Date(c.churned_at).getTime() : Date.now();
+  return Math.max(0, Math.floor((end - start) / 86400000));
+};
+// „1г 3м“ / „5 мес.“ / „12 дни“
+export const fmtTenure = (days: number) => {
+  if (days < 31) return `${days} ${days === 1 ? "ден" : "дни"}`;
+  const months = Math.floor(days / 30.44);
+  if (months < 12) return `${months} мес.`;
+  const y = Math.floor(months / 12);
+  const rem = months % 12;
+  return rem ? `${y}г ${rem}м` : `${y} ${y === 1 ? "година" : "години"}`;
+};
+// Събрано по месеци (последните n месеца) — за бар графиката „Приход по месеци“.
+export const revenueByMonth = (invoices: Invoice[], n = 12) => {
+  const now = new Date();
+  const out: { key: string; label: string; val: number }[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = monthKey(d);
+    const val = invoices.filter((iv) => iv.status === "paid" && iv.created_at && monthKey(new Date(iv.created_at)) === key)
+      .reduce((a, iv) => a + (iv.amount || 0), 0);
+    out.push({ key, label: monthLabel(key), val });
+  }
+  return out;
+};
 
 export const clientsById = (list: Client[]) =>
   Object.fromEntries(list.map((c) => [c.id, c])) as Record<string, Client>;

@@ -287,7 +287,7 @@ function ClientModal() {
             <div className="bm-field"><label className="bm-label">Месечно (EUR)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
           </div>
           <div className="bm-form-row bm-form-row--3">
-            <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="Active">Активен</option><option value="At risk">Риск</option><option value="Onboarding">Включване</option></select></div>
+            <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="Active">Активен</option><option value="At risk">Риск</option><option value="Onboarding">Включване</option><option value="Churned">Напуснал</option></select></div>
             <div className="bm-field"><label className="bm-label">Състояние</label><select className="bm-select" {...register("health")}><option value="good">Стабилен</option><option value="watch">Наблюдение</option><option value="risk">Риск</option></select></div>
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
           </div>
@@ -321,8 +321,8 @@ function TaskModal() {
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<TaskForm>({
     resolver: zodResolver(taskSchema),
     defaultValues: editing
-      ? { title: editing.title, client: editing.client, priority: editing.priority, due: editing.due, estimate_hours: editing.estimate_hours ?? 0, pay_amount: editing.pay_amount ?? 0, assignee: editing.assignee, team_visible: (editing.visibility ?? "team") === "team" }
-      : { title: "", client: visibleClients[0]?.id ?? "", priority: "medium", due: "Soon", estimate_hours: 0, pay_amount: 0, assignee: currentUser.initials, team_visible: !currentUser.isAdmin },
+      ? { title: editing.title, client: editing.client, priority: editing.priority, due: editing.due, estimate_hours: editing.estimate_hours ?? 0, assignee: editing.assignee, team_visible: (editing.visibility ?? "team") === "team" }
+      : { title: "", client: visibleClients[0]?.id ?? "", priority: "medium", due: "Soon", estimate_hours: 0, assignee: currentUser.initials, team_visible: !currentUser.isAdmin },
   });
   // The client dropdown only offers what the CHOSEN assignee may see — a worker
   // must never receive a task for a client outside their access (Екип → достъп).
@@ -364,12 +364,6 @@ function TaskModal() {
           </div>
           {currentUser.isAdmin && (
             <>
-              <div className="bm-field">
-                <label className="bm-label">Възнаграждение за изпълнителя (EUR)</label>
-                <input className="bm-input" type="number" step="0.01" {...register("pay_amount", { valueAsNumber: true })} placeholder="0" />
-                <Err msg={errors.pay_amount?.message} />
-                {editing?.paid && <span className="bm-badge bm-badge--success" style={{ alignSelf: "flex-start", marginTop: 4 }}>Платена</span>}
-              </div>
               <label className="bm-checkbox" title="Изключено = виждате я само ти и изпълнителят">
                 <input type="checkbox" {...register("team_visible")} /> Видима за целия екип
               </label>

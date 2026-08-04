@@ -14,7 +14,6 @@ import {
   seedContentItems,
   defaultStages,
   stagesForType,
-  STAGE_DEFAULT_PAY,
   stageMeta,
   ROLE_LABELS,
   ONBOARDING_TASKS,
@@ -155,6 +154,8 @@ interface Store {
   ideas: Idea[];
   approvals: Approval[];
   bookings: ShootBooking[];
+  addBooking: (clientId: string, date: string, start: string, end: string, note: string) => void;
+  deleteBooking: (id: string) => void;
   approveBooking: (id: string) => void;
   declineBooking: (id: string) => void;
   getBookingFeedUrl: () => Promise<string | null>;
@@ -240,6 +241,8 @@ interface Store {
   moveTask: (id: string, status: TaskStatus) => void;
   toggleDone: (id: string) => void;
   markWorkerPaid: (initials: string) => void;
+  setTaskPay: (taskId: string, amount: number) => void;
+  setMemberRate: (profileId: string, rate: number) => void;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -292,7 +295,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const sb = createClient();
-        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv, vm, bk] = await Promise.all([
+        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv, vm, bk, tp, wr] = await Promise.all([
           sb.from("clients").select("*").order("created_at"),
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
@@ -312,6 +315,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("approvals").select("*").order("created_at", { ascending: false }),
           sb.from("video_metrics").select("*"),
           sb.from("shoot_bookings").select("*").order("date"),
+          sb.from("task_pay").select("*"),      // RLS: админ вижда всички, работник — само своите
+          sb.from("worker_rates").select("*"),  // RLS: админ + себе си
         ]);
         // Липсваща таблица (миграция 0029 още не е пусната) просто оставя
         // празни бранд профили — грешката не пипа останалите данни.
@@ -320,9 +325,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         if (c.data) setClients(c.data as Client[]);
         if (iv.data) setInvoices((iv.data as InvoiceRow[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
-        if (t.data) setTasks((t.data as TaskRow[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
+        // Заплащането идва от приватната task_pay (RLS я филтрира). Сливаме го в
+        // задачите, за да работи целият код (payoutFor и т.н.) непроменен; не-админ
+        // получава pay само за своите задачи → приватност по конструкция.
+        const payByTask = Object.fromEntries((tp.data as { task_id: string; amount: number; paid: boolean; paid_at: string | null }[] || []).map((p) => [p.task_id, p]));
+        if (t.data) setTasks((t.data as TaskRow[]).map(({ client_id, ...r }) => {
+          const p = payByTask[r.id];
+          return { ...r, client: client_id, pay_amount: p?.amount ?? 0, paid: p?.paid ?? false, paid_at: p?.paid_at ?? null };
+        }));
         if (act.data) setActivity(act.data as ActivityItem[]);
-        if (tm.data && tm.data.length) setTeam(tm.data as TeamMember[]);
+        // Ставките (worker_rates) — по profile_id; сливаме в екипа като pay_rate.
+        const rateById = Object.fromEntries((wr.data as { profile_id: string; rate: number }[] || []).map((r) => [r.profile_id, r.rate]));
+        if (tm.data && tm.data.length) setTeam((tm.data as TeamMember[]).map((m) => ({ ...m, pay_rate: rateById[m.id] })));
         if (cm.data) setComments(cm.data as Comment[]);
         if (ld.data) setLeads(ld.data as Lead[]);
         if (cmp.data) setCampaigns((cmp.data as (Omit<Campaign, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
@@ -451,6 +465,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const id = (payload.old as { id?: string })?.id;
           if (id) setBookings((list) => list.filter((x) => x.id !== id));
         }
+      })
+      .subscribe();
+    return () => { client.removeChannel(ch); };
+  }, [rtToken]);
+
+  // Live заплащане: task_pay (приватно, RLS). Тригерът пълни сумите, админът ги
+  // коригира/маркира платено — сливаме промените в задачите. Работникът получава
+  // само своите редове (RLS), админът — всички.
+  useEffect(() => {
+    if (!supabaseConfigured || !rtToken) return;
+    const client = createClient();
+    client.realtime.setAuth(rtToken);
+    const mergePay = (p: { task_id: string; amount?: number; paid?: boolean; paid_at?: string | null }) =>
+      setTasks((list) => list.map((t) => (t.id === p.task_id ? { ...t, pay_amount: p.amount ?? t.pay_amount, paid: p.paid ?? t.paid, paid_at: p.paid_at ?? t.paid_at } : t)));
+    const ch = client
+      .channel("task-pay-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_pay" }, (payload) => {
+        if (payload.eventType === "DELETE") return;
+        mergePay(payload.new as { task_id: string; amount: number; paid: boolean; paid_at: string | null });
       })
       .subscribe();
     return () => { client.removeChannel(ch); };
@@ -782,17 +815,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // Reuse the live task; surplus duplicates (from older double-creates)
       // get swept: paid/valued ones close as done, worthless ones are deleted.
       const [keep, ...extras] = open;
-      // Дефолтна сума по етап (напр. монтаж €15): прилага се само ако текущата
-      // сума не е пипана ръчно (0 или дефолта на предишния етап).
-      const untouched = (keep.pay_amount || 0) === 0 || keep.pay_amount === (STAGE_DEFAULT_PAY[keep.stage_key || ""] || 0);
-      const pay = untouched ? (STAGE_DEFAULT_PAY[toStage] || 0) : (keep.pay_amount || 0);
-      const patch = { title: taskTitle, client_id: clientId, assignee, status: "todo" as TaskStatus, progress: 0, stage_key: toStage, pay_amount: pay };
-      setTasks((list) => list.map((t) => (t.id === keep.id ? { ...t, title: taskTitle, client: clientId, assignee, status: "todo", progress: 0, stage_key: toStage, pay_amount: pay } : t)));
+      // Заплащането се управлява от task_pay (тригерът пренастройва сумата към
+      // ставката на новия изпълнител при смяна на assignee). Тук не пишем пари.
+      const patch = { title: taskTitle, client_id: clientId, assignee, status: "todo" as TaskStatus, progress: 0, stage_key: toStage };
+      setTasks((list) => list.map((t) => (t.id === keep.id ? { ...t, title: taskTitle, client: clientId, assignee, status: "todo", progress: 0, stage_key: toStage } : t)));
       sb()?.from("tasks").update(patch).eq("id", keep.id).then(({ error }) => {
         if (error) { console.error("[BrandMotion] syncStageTask retarget failed:", error); notifyError("Преместването на задачата не се запази: " + error.message); }
       });
-      const junk = extras.filter((t) => !(t.pay_amount || 0) && !(t.time_logged || 0)).map((t) => t.id);
-      const worth = extras.filter((t) => (t.pay_amount || 0) || (t.time_logged || 0)).map((t) => t.id);
+      const junk = extras.filter((t) => !(t.time_logged || 0)).map((t) => t.id);
+      const worth = extras.filter((t) => (t.time_logged || 0)).map((t) => t.id);
       if (junk.length) {
         setTasks((list) => list.filter((t) => !junk.includes(t.id)));
         sb()?.from("tasks").delete().in("id", junk).then(({ error }) => error && console.error("[BrandMotion] syncStageTask dedupe failed:", error));
@@ -801,6 +832,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Заплащането го попълва тригерът в task_pay (ставка на изпълнителя / €15).
+    // Локално оптимистично: ставката е видима само на админа (RLS), иначе 0.
+    const optimisticPay = team.find((m) => m.initials === assignee)?.pay_rate ?? 0;
     const row = {
       id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: taskTitle,
@@ -811,17 +845,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       due: "Според етапа",
       progress: 0,
       estimate_hours: 0,
-      pay_amount: STAGE_DEFAULT_PAY[toStage] || 0,
       visibility: "private" as const,
       content_item_id: itemId,
       stage_key: toStage,
     };
     const { client_id: rowClientId, ...rest } = row;
-    setTasks((list) => [...list, { ...rest, client: rowClientId }]);
+    setTasks((list) => [...list, { ...rest, client: rowClientId, pay_amount: optimisticPay, paid: false, paid_at: null }]);
     sb()?.from("tasks").insert(row).then(({ error }) => {
       if (error) { console.error("[BrandMotion] syncStageTask insert failed:", error); notifyError("Задачата за следващия етап не се запази: " + error.message); }
     });
-  }, [tasks, notifyError]);
+  }, [tasks, team, notifyError]);
 
   // ---- Content calendar ----
   const addContentItem = useCallback((clientId: string, f: ContentItemForm) => {
@@ -1014,6 +1047,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [notifyError]);
 
   // ---- Снимачни дни (админ) ----
+  // Ръчно добавен от админа ден е директно одобрен (той сам го е насрочил),
+  // за разлика от заявките през portal_book, които влизат като pending.
+  const addBooking = useCallback((clientId: string, date: string, start: string, end: string, note: string) => {
+    const row: ShootBooking = {
+      id: "sb-" + Date.now(), client_id: clientId, date,
+      start_time: start || null, end_time: end || null, note,
+      status: "approved", created_at: new Date().toISOString(), decided_at: new Date().toISOString(),
+    };
+    setBookings((list) => (list.some((b) => b.id === row.id) ? list : [...list, row]));
+    sb()?.from("shoot_bookings").insert(row).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] addBooking failed:", error); notifyError("Снимачният ден не се запази: " + error.message); }
+    });
+    const name = clients.find((c) => c.id === clientId)?.name || clientId;
+    logActivity(`добави снимачен ден ${date} за ${name}`, "admin");
+  }, [clients, logActivity, notifyError]);
+
+  const deleteBooking = useCallback((id: string) => {
+    const b = bookings.find((x) => x.id === id);
+    setBookings((list) => list.filter((x) => x.id !== id));
+    sb()?.from("shoot_bookings").delete().eq("id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] deleteBooking failed:", error); notifyError("Снимачният ден не се изтри: " + error.message); }
+    });
+    logActivity(`изтри снимачен ден ${b?.date || ""}`, "admin");
+  }, [bookings, logActivity, notifyError]);
+
   const decideBooking = useCallback((id: string, status: "approved" | "declined") => {
     const decided_at = new Date().toISOString();
     setBookings((list) => list.map((b) => (b.id === id ? { ...b, status, decided_at } : b)));
@@ -1331,14 +1389,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [logActivity, notifyError]);
 
   const updateClient = useCallback((id: string, f: ClientForm) => {
-    const patch = { name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url };
+    // „Напуснал" печата дата на напускане (за задържане/churn); връщане към
+    // активен статус я изчиства. Пази съществуващата дата при повторно записване.
+    const prev = clients.find((c) => c.id === id);
+    const churned_at = f.status === "Churned" ? (prev?.churned_at || new Date().toISOString()) : null;
+    const patch = { name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url, churned_at };
     setClients((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     sb()?.from("clients").update(patch).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] updateClient failed:", error.message || error); notifyError(`Промяната по клиента не се запази: ${error.message || "неизвестна грешка"}`); }
     });
     logActivity(`обнови клиент ${f.name}`, "admin");
     setModal(null);
-  }, [logActivity, notifyError]);
+  }, [clients, logActivity, notifyError]);
 
   const deleteClient = useCallback((id: string) => {
     const name = clients.find((c) => c.id === id)?.name || id;
@@ -1399,9 +1461,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const addTask = useCallback((f: TaskForm) => {
     const assignee = (currentUser.isAdmin || currentUser.level === "manager") && f.assignee ? f.assignee : currentUser.initials;
     const visibility = currentUser.isAdmin && !f.team_visible ? ("private" as const) : ("team" as const);
-    const row = { id: "t-" + Date.now(), title: f.title, client_id: f.client, status: "todo" as TaskStatus, priority: f.priority, assignee, due: f.due || "Soon", progress: 0, estimate_hours: f.estimate_hours || 0, pay_amount: f.pay_amount || 0, visibility };
+    const row = { id: "t-" + Date.now(), title: f.title, client_id: f.client, status: "todo" as TaskStatus, priority: f.priority, assignee, due: f.due || "Soon", progress: 0, estimate_hours: f.estimate_hours || 0, visibility };
     const { client_id: rowClient, ...rest } = row;
-    setTasks((list) => [...list, { ...rest, client: rowClient }]);
+    setTasks((list) => [...list, { ...rest, client: rowClient, pay_amount: 0, paid: false, paid_at: null }]);
     sb()?.from("tasks").insert(row).then(({ error }) => {
       if (error) { console.error("[BrandMotion] addTask failed:", error); notifyError("Задачата не се запази и няма да стигне до изпълнителя: " + error.message); }
     });
@@ -1415,8 +1477,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const canAssign = currentUser.isAdmin || currentUser.level === "manager";
     const assignee = canAssign && f.assignee ? f.assignee : prev?.assignee || currentUser.initials;
     const visibility = currentUser.isAdmin ? (f.team_visible ? ("team" as const) : ("private" as const)) : prev?.visibility || "team";
-    const patch = { title: f.title, client_id: f.client, priority: f.priority, due: f.due || "Soon", estimate_hours: f.estimate_hours || 0, pay_amount: f.pay_amount || 0, assignee, visibility };
-    setTasks((list) => list.map((t) => (t.id === id ? { ...t, title: f.title, client: f.client, priority: f.priority, due: f.due || "Soon", estimate_hours: f.estimate_hours || 0, pay_amount: f.pay_amount || 0, assignee, visibility } : t)));
+    const patch = { title: f.title, client_id: f.client, priority: f.priority, due: f.due || "Soon", estimate_hours: f.estimate_hours || 0, assignee, visibility };
+    setTasks((list) => list.map((t) => (t.id === id ? { ...t, title: f.title, client: f.client, priority: f.priority, due: f.due || "Soon", estimate_hours: f.estimate_hours || 0, assignee, visibility } : t)));
     sb()?.from("tasks").update(patch).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] updateTask failed:", error); notifyError("Промяната по задачата не се запази: " + error.message); }
     });
@@ -1480,12 +1542,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const ids = due.map((t) => t.id);
     const total = due.reduce((a, t) => a + (t.pay_amount || 0), 0);
     setTasks((list) => list.map((t) => (ids.includes(t.id) ? { ...t, paid: true, paid_at: now } : t)));
-    sb()?.from("tasks").update({ paid: true, paid_at: now }).in("id", ids).then(({ error }) => {
+    // Плащането живее в приватната task_pay (не в tasks).
+    sb()?.from("task_pay").update({ paid: true, paid_at: now }).in("task_id", ids).then(({ error }) => {
       if (error) { console.error("[BrandMotion] markWorkerPaid failed:", error); notifyError("„Платено“ не се запази: " + error.message); }
     });
     notify(initials, `Плащане към теб е отбелязано: €${Math.round(total).toLocaleString("bg-BG")} за ${ids.length} задачи`, { entity_type: "pay", entity_id: initials });
     logActivity(`отбеляза плащане €${Math.round(total).toLocaleString("bg-BG")} към ${initials}`, "admin");
   }, [tasks, notify, notifyError, logActivity]);
+
+  // Ръчна корекция на сумата за конкретна задача (само админ; редактира се от
+  // таба Възнаграждения). Пише в приватната task_pay.
+  const setTaskPay = useCallback((taskId: string, amount: number) => {
+    const amt = Math.round((amount || 0) * 100) / 100;
+    setTasks((list) => list.map((t) => (t.id === taskId ? { ...t, pay_amount: amt } : t)));
+    sb()?.from("task_pay").upsert({ task_id: taskId, amount: amt }, { onConflict: "task_id" }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] setTaskPay failed:", error); notifyError("Сумата не се запази: " + error.message); }
+    });
+  }, [notifyError]);
+
+  // Дефолтна ставка на работник (worker_rates). Само админ. Отразява се на новите
+  // стъпка-задачи през тригера; съществуващите неплатени се пренастройват при
+  // следваща смяна на изпълнител.
+  const setMemberRate = useCallback((profileId: string, rate: number) => {
+    const r = Math.round((rate || 0) * 100) / 100;
+    setTeam((list) => list.map((m) => (m.id === profileId ? { ...m, pay_rate: r } : m)));
+    sb()?.from("worker_rates").upsert({ profile_id: profileId, rate: r }, { onConflict: "profile_id" }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] setMemberRate failed:", error); notifyError("Ставката не се запази: " + error.message); }
+    });
+  }, [notifyError]);
 
   const value: Store = {
     clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
@@ -1495,11 +1579,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
     advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
-    bookings, approveBooking, declineBooking, getBookingFeedUrl,
+    bookings, addBooking, deleteBooking, approveBooking, declineBooking, getBookingFeedUrl,
     modal, openModal: setModal, closeModal: () => setModal(null),
     addClient, updateClient, deleteClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,
-    addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid,
+    addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid, setTaskPay, setMemberRate,
   };
 
   return (
