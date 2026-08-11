@@ -27,11 +27,35 @@ const addHour = (hhmm: string) => {
 const dtstamp = () => new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 const nextDay = (iso: string) => { const dt = new Date(iso + "T00:00:00Z"); dt.setUTCDate(dt.getUTCDate() + 1); return d8(dt.toISOString().slice(0, 10)); };
 
+// Часовете се пазят като локално (софийско) стенно време. Без TZID Google ги
+// чете като UTC и ги измества с 2–3 часа. Затова закачаме TZID=Europe/Sofia +
+// VTIMEZONE с DST правилата — календарите ги интерпретират правилно целогодишно.
+const TZID = "Europe/Sofia";
+const VTIMEZONE = [
+  "BEGIN:VTIMEZONE",
+  `TZID:${TZID}`,
+  "BEGIN:DAYLIGHT",
+  "TZOFFSETFROM:+0200",
+  "TZOFFSETTO:+0300",
+  "TZNAME:EEST",
+  "DTSTART:19700329T030000",
+  "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU",
+  "END:DAYLIGHT",
+  "BEGIN:STANDARD",
+  "TZOFFSETFROM:+0300",
+  "TZOFFSETTO:+0200",
+  "TZNAME:EET",
+  "DTSTART:19701025T040000",
+  "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU",
+  "END:STANDARD",
+  "END:VTIMEZONE",
+].join("\r\n");
+
 function vevent(b: IcsBooking): string {
   const lines = ["BEGIN:VEVENT", `UID:${b.id}@brandmotion`, `DTSTAMP:${dtstamp()}`];
   if (b.start) {
     const end = b.end || addHour(b.start);
-    lines.push(`DTSTART:${d8(b.date)}T${t6(b.start)}`, `DTEND:${d8(b.date)}T${t6(end)}`);
+    lines.push(`DTSTART;TZID=${TZID}:${d8(b.date)}T${t6(b.start)}`, `DTEND;TZID=${TZID}:${d8(b.date)}T${t6(end)}`);
   } else {
     lines.push(`DTSTART;VALUE=DATE:${d8(b.date)}`, `DTEND;VALUE=DATE:${nextDay(b.date)}`);
   }
@@ -60,6 +84,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "X-WR-CALNAME:Снимачни дни",
+    `X-WR-TIMEZONE:${TZID}`,
+    VTIMEZONE,
     events,
     "END:VCALENDAR",
   ].filter(Boolean).join("\r\n");
