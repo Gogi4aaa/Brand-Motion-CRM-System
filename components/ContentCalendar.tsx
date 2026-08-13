@@ -46,9 +46,9 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
   // отворен. Проверката е след mount, за да не чупи SSR.
   const [backlogOpen, setBacklogOpen] = useState(true);
   useEffect(() => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches) {
-      setBacklogOpen(false);
-    }
+    // Легитимна корекция след mount (SSR не знае ширината) — затова изключваме правилото.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches) setBacklogOpen(false);
   }, []);
   const today = new Date();
   const [view, setView] = useState({ y: today.getFullYear(), m: today.getMonth() });
@@ -74,7 +74,18 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
     return allMode ? `${byId[it.client]?.initials || "?"} · ${t}` : t;
   };
 
-  const onDropDay = (date: string | null) => { if (dragId && canSchedule) { scheduleContent(dragId, date); setDragId(null); } };
+  const onDropDay = (date: string | null) => {
+    if (!dragId || !canSchedule) return;
+    if (date === null) {
+      // Връщане в „Непланирани": публикуваното НЕ се разсрочва — иначе изчезва
+      // (списъкът крие публикуваните видеа), затова оставяме датата му непокътната.
+      const it = contentItems.find((c) => c.id === dragId);
+      if (it?.published) { setDragId(null); return; }
+      setBacklogOpen(true); // отваряме списъка, за да се вижда върнатото видео
+    }
+    scheduleContent(dragId, date);
+    setDragId(null);
+  };
 
   const go = (delta: number) => {
     const m = view.m + delta;
