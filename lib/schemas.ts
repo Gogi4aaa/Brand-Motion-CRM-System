@@ -103,6 +103,7 @@ export const contentItemSchema = z.object({
   notion_url: z.string().trim(),
   footage_url: z.string().trim(),
   thumbnail_url: z.string().trim(),
+  final_url: z.string().trim(),
   published: z.boolean(),
 });
 export type ContentItemForm = z.infer<typeof contentItemSchema>;

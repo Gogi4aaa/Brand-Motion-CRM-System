@@ -554,6 +554,7 @@ export interface ContentItem {
   notion_url: string;
   footage_url?: string; // линк към суровия материал (Drive папка от снимачния ден)
   thumbnail_url?: string; // Google Drive линк за преглед на thumbnail-ите (всеки може да сменя)
+  final_url?: string; // линк към ГОТОВАТА (монтирана) версия — тегли се оттук за публикуване
   published?: boolean;
   published_at?: string | null; // кога е публикувано — бордът архивира по него
   current_stage?: string;

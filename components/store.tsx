@@ -861,7 +861,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const client = clients.find((c) => c.id === clientId);
     const stages = defaultStages(team, client?.editor || "", currentUser.initials, f.type);
     const date = f.date || null;
-    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", published: f.published, current_stage: "strategy", stages };
+    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, current_stage: "strategy", stages };
     const { client_id: newClient, ...restRow } = row;
     setContentItems((list) => [...list, { ...restRow, client: newClient }]);
     sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] addContentItem failed:", error));
@@ -1328,7 +1328,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Първото минаване през "публикувано" печата published_at — по него бордът
     // архивира картата след BOARD_RETENTION_DAYS.
     const publishedAt = f.published ? (prev?.published ? prev.published_at ?? null : new Date().toISOString()) : null;
-    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", published: f.published, published_at: publishedAt };
+    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, published_at: publishedAt };
     setContentItems((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
     setModal(null);

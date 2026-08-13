@@ -718,8 +718,8 @@ function ContentModal() {
   const { register, handleSubmit, getValues, setValue, watch, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
-      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", published: editing.published ?? false }
-      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", thumbnail_url: "", published: false },
+      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", final_url: editing.final_url ?? "", published: editing.published ?? false }
+      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", thumbnail_url: "", final_url: "", published: false },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
   // Постът има различни полета: без Кука/Сценарий/CTA, с „Текст на поста“.
@@ -854,6 +854,18 @@ function ContentModal() {
                     {!src && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>За вграден преглед подай линк към конкретен файл, споделен с „всеки с линка“.</span>}
                   </div>
                 );
+              })()}
+            </div>
+            {/* Готов вариант — линк към финалната (монтирана) версия. Слага се след
+                преглед; оттам се тегли готовият клип за публикуване. */}
+            <div className="bm-field" style={{ border: "1px solid var(--bm-brand-500)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", background: "var(--bm-brand-50)" }}>
+              <label className="bm-label" style={{ fontWeight: 700 }}>🎬 Готов вариант (линк)</label>
+              <input className="bm-input" {...register("final_url")} placeholder="Линк към финалното видео (Drive / WeTransfer…)" />
+              {(() => {
+                const url = watch("final_url")?.trim();
+                return url ? (
+                  <a href={url} target="_blank" rel="noreferrer" style={{ display: "inline-block", fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-700)", fontWeight: 700, marginTop: 6 }}>Отвори / изтегли готовото видео ↗</a>
+                ) : <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", display: "block", marginTop: 4 }}>След преглед постави тук линка към готовата версия.</span>;
               })()}
             </div>
             <label className="bm-checkbox" title={canPublish ? "" : "Отбелязва се от админ, мениджър или Публикуващ"}><input type="checkbox" disabled={!canPublish} {...register("published")} /> Публикувано</label>
