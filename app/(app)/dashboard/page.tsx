@@ -6,6 +6,7 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor, inCurrentMonth } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 type Period = "today" | "week" | "month";
 const PERIODS: { key: Period; label: string; word: string }[] = [
@@ -116,9 +117,9 @@ export default function DashboardPage() {
         {showMoney ? (
           <>
             <Kpi label="Активни клиенти" value={clients.filter((c) => c.status === "Active").length} deltaCls="bm-text-subtle" delta={`от общо ${clients.length}`} />
-            <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls={overdue.length ? "bm-stat__delta--down" : "bm-text-subtle"} delta={overdue.length ? `${overdue.length} просрочени` : "няма просрочени"} />
+            <Kpi label="Несъбрани" value={<Money>{fmtK(sum(outstanding))}</Money>} deltaCls={overdue.length ? "bm-stat__delta--down" : "bm-text-subtle"} delta={overdue.length ? `${overdue.length} просрочени` : "няма просрочени"} />
             <Kpi label="Отворени задачи" value={openTasks.length} deltaCls="bm-text-subtle" delta={`${openTasks.filter((t) => t.priority === "high").length} с висок приоритет`} />
-            <Kpi label={"Платени " + periodWord} value={fmtK(sum(paid))} deltaCls="bm-stat__delta--up" delta={`${paid.length} фактури`} />
+            <Kpi label={"Платени " + periodWord} value={<Money>{fmtK(sum(paid))}</Money>} deltaCls="bm-stat__delta--up" delta={`${paid.length} фактури`} />
           </>
         ) : showTeamOps ? (
           <>
@@ -132,7 +133,7 @@ export default function DashboardPage() {
             <Kpi label="Моите отворени задачи" value={myOpen} deltaCls="bm-text-subtle" delta="за вършене" />
             <Kpi label="Завършени от мен" value={myDone} deltaCls="bm-stat__delta--up" delta="готови" />
             <Kpi label="Видеа при мен" value={myVideos} deltaCls="bm-text-subtle" delta="в продукция" />
-            <Kpi label="За получаване" value={fmtFull(payoutFor(tasks, currentUser.initials).owed)} deltaCls="bm-stat__delta--up" delta="от завършени задачи" />
+            <Kpi label="За получаване" value={<Money>{fmtFull(payoutFor(tasks, currentUser.initials).owed)}</Money>} deltaCls="bm-stat__delta--up" delta="от завършени задачи" />
           </>
         )}
       </section>
@@ -167,7 +168,7 @@ export default function DashboardPage() {
                         <td style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)" }}>{iv.id}</td>
                         <td>{byId[iv.client]?.name}</td>
                         <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
-                        <td className="bm-table__num">{fmtFull(iv.amount)}</td>
+                        <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
                         <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
                       </tr>
                     );
@@ -205,7 +206,7 @@ export default function DashboardPage() {
           {showMoney && (
           <div className="bm-alert bm-alert--danger" style={{ alignItems: "center" }}>
             <Icon name="warn" />
-            <div><b>{overdue.length} просрочени фактури</b> — {fmtFull(sum(overdue))} се нуждаят от напомняне.</div>
+            <div><b>{overdue.length} просрочени фактури</b> — <Money>{fmtFull(sum(overdue))}</Money> се нуждаят от напомняне.</div>
           </div>
           )}
 

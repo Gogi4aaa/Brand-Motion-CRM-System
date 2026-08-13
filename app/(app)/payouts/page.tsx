@@ -10,6 +10,7 @@ import {
   fmtFull, payoutFor, inCurrentMonth, stageMeta, clientsById,
   collectedRevenue, workerPaidCost,
 } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 export default function PayoutsPage() {
   const { tasks, team, contentItems, clients, invoices, markWorkerPaid, setTaskPay, currentUser } = useStore();
@@ -67,9 +68,9 @@ export default function PayoutsPage() {
       {/* Чиста печалба за периода — само за админ. */}
       {isAdmin && (
         <section className="bm-stats">
-          <div className="bm-card bm-stat"><div className="bm-stat__label">Събрано {period === "month" ? "този месец" : "общо"}</div><div className="bm-stat__value">{money(rev)}</div></div>
-          <div className="bm-card bm-stat"><div className="bm-stat__label">Изплатено на екипа</div><div className="bm-stat__value" style={{ color: "var(--bm-danger-600)" }}>{money(cost)}</div></div>
-          <div className="bm-card bm-stat"><div className="bm-stat__label">Чиста печалба</div><div className="bm-stat__value" style={{ color: net >= 0 ? "var(--bm-success-600)" : "var(--bm-danger-600)" }}>{money(net)}</div></div>
+          <div className="bm-card bm-stat"><div className="bm-stat__label">Събрано {period === "month" ? "този месец" : "общо"}</div><div className="bm-stat__value"><Money>{money(rev)}</Money></div></div>
+          <div className="bm-card bm-stat"><div className="bm-stat__label">Изплатено на екипа</div><div className="bm-stat__value" style={{ color: "var(--bm-danger-600)" }}><Money>{money(cost)}</Money></div></div>
+          <div className="bm-card bm-stat"><div className="bm-stat__label">Чиста печалба</div><div className="bm-stat__value" style={{ color: net >= 0 ? "var(--bm-success-600)" : "var(--bm-danger-600)" }}><Money>{money(net)}</Money></div></div>
         </section>
       )}
 
@@ -91,8 +92,8 @@ export default function PayoutsPage() {
                     </span>
                   </button>
                   <span style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>заработено {money(r.earned)} · изплатено {money(r.paid)}{r.upcoming ? ` · предстоящо ${money(r.upcoming)}` : ""}</span>
-                    <span style={{ fontWeight: 700 }} title={isAdmin ? "Дължимо сега (завършени неплатени задачи)" : "Какво ще получиш (завършено, още неплатено)"}>{money(r.owed)}</span>
+                    <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>заработено <Money>{money(r.earned)}</Money> · изплатено <Money>{money(r.paid)}</Money>{r.upcoming ? ` · предстоящо ${money(r.upcoming)}` : ""}</span>
+                    <span style={{ fontWeight: 700 }} title={isAdmin ? "Дължимо сега (завършени неплатени задачи)" : "Какво ще получиш (завършено, още неплатено)"}><Money>{money(r.owed)}</Money></span>
                     {isAdmin && <button className="bm-btn bm-btn--secondary bm-btn--sm" disabled={r.owed === 0} onClick={() => markWorkerPaid(r.m.initials)} title="Маркира завършените неплатени задачи като платени">Платено</button>}
                   </span>
                 </div>

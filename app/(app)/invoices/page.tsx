@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { clientsById, invStatusMeta, fmtK, fmtFull, monthStart, type InvStatus } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 function Kpi({ label, value, color, deltaCls, delta }: { label: string; value: React.ReactNode; color?: string; deltaCls: string; delta: string }) {
   return (
@@ -52,9 +53,9 @@ export default function InvoicesPage() {
       </div>
 
       <section className="bm-stats">
-        <Kpi label="Несъбрани" value={fmtK(sum(outstanding))} deltaCls="bm-text-subtle" delta={`${outstanding.length} отворени фактури`} />
-        <Kpi label="Просрочени" value={fmtK(sum(overdue))} color="var(--bm-danger-600)" deltaCls="bm-stat__delta--down" delta={`${overdue.length} изискват внимание`} />
-        <Kpi label="Платени този месец" value={fmtK(curSum)} color="var(--bm-success-600)" deltaCls={paidDelta.cls} delta={paidDelta.text} />
+        <Kpi label="Несъбрани" value={<Money>{fmtK(sum(outstanding))}</Money>} deltaCls="bm-text-subtle" delta={`${outstanding.length} отворени фактури`} />
+        <Kpi label="Просрочени" value={<Money>{fmtK(sum(overdue))}</Money>} color="var(--bm-danger-600)" deltaCls="bm-stat__delta--down" delta={`${overdue.length} изискват внимание`} />
+        <Kpi label="Платени този месец" value={<Money>{fmtK(curSum)}</Money>} color="var(--bm-success-600)" deltaCls={paidDelta.cls} delta={paidDelta.text} />
         <Kpi label="Чернови" value={drafts.length} deltaCls="bm-text-subtle" delta="Готови за изпращане" />
       </section>
 
@@ -81,7 +82,7 @@ export default function InvoicesPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", fontFamily: "var(--bm-font-mono)" }}>{iv.id} · {iv.issued}{iv.due ? ` → ${iv.due}` : ""}</span>
-                  <span style={{ fontWeight: 700 }}>{fmtFull(iv.amount)}</span>
+                  <span style={{ fontWeight: 700 }}><Money>{fmtFull(iv.amount)}</Money></span>
                 </div>
                 <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
                   {canPay && <button className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => markPaid(iv.id)}>Платена</button>}
@@ -109,7 +110,7 @@ export default function InvoicesPage() {
                     <td style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)" }}>{iv.id}</td>
                     <td><div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}><span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{c?.initials || "—"}</span> {c?.name || iv.client}</div></td>
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
-                    <td className="bm-table__num">{fmtFull(iv.amount)}</td>
+                    <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.issued}</td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
                     <td style={{ textAlign: "right" }}>

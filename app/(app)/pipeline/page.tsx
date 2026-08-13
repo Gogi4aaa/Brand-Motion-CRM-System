@@ -5,6 +5,7 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { PIPELINE_STAGES, leadSourceMeta, clientsById, fmtFull, fmtK, type LeadStage } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.ReactNode; deltaCls?: string; delta?: string }) {
   return (
@@ -46,8 +47,8 @@ export default function PipelinePage() {
       </div>
 
       <section className="bm-stats">
-        <Kpi label="Активни сделки" value={fmtK(sum(open))} delta={`${open.length} активни сделки`} />
-        <Kpi label="Спечелени" value={fmtK(sum(won))} deltaCls="bm-stat__delta--up" delta={`${won.length} затворени`} />
+        <Kpi label="Активни сделки" value={<Money>{fmtK(sum(open))}</Money>} delta={`${open.length} активни сделки`} />
+        <Kpi label="Спечелени" value={<Money>{fmtK(sum(won))}</Money>} deltaCls="bm-stat__delta--up" delta={`${won.length} затворени`} />
         <Kpi label="Успеваемост" value={winRate + "%"} delta={`${closed} затворени сделки`} />
         <Kpi label="Препоръки" value={referrals.length} delta={leads.length ? `${Math.round((referrals.length / leads.length) * 100)}% от всички` : "—"} />
       </section>
@@ -95,7 +96,7 @@ export default function PipelinePage() {
                         <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-brand-600)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Препоръчан от ${ref}`}>↩ {ref}</div>
                       )}
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
-                        <span style={{ fontFamily: "var(--bm-font-mono)", fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>{fmtFull(l.value)}</span>
+                        <span style={{ fontFamily: "var(--bm-font-mono)", fontWeight: 700, fontSize: "var(--bm-text-sm)" }}><Money>{fmtFull(l.value)}</Money></span>
                         <Avatar initials={l.owner} style={{ width: 24, height: 24, fontSize: 10 }} />
                       </div>
                       {/* Телефон: влаченето не работи на touch — стрелките местят между етапите */}

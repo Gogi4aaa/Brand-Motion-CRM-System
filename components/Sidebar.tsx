@@ -6,6 +6,7 @@ import { Icon, type IconName } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { fmtK, canAccess, memberTitle, inCurrentMonth } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Табло", icon: "dashboard" },
@@ -99,7 +100,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
             </span>
             {pct !== null && <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-success-600)", fontWeight: 700 }} title="Спрямо сбора от месечните такси на активните клиенти">{pct}%</span>}
           </div>
-          <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700, letterSpacing: "var(--bm-tracking-tight)" }}>{fmtK(collected)}</div>
+          <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700, letterSpacing: "var(--bm-tracking-tight)" }}><Money>{fmtK(collected)}</Money></div>
           <div className="bm-progress">
             <div className="bm-progress__bar" style={{ width: (pct ?? 0) + "%" }} />
           </div>

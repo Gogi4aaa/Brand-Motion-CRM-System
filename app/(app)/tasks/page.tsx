@@ -5,6 +5,7 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { clientsById, prioMeta, TASK_COLUMNS, fmtFull, payoutFor, canSeeTask, isArchived, BOARD_RETENTION_DAYS, WEEKLY_CAPACITY_HOURS, type TaskStatus } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 export default function TasksPage() {
   const { clients, tasks, team, moveTask, openModal, currentUser, markWorkerPaid, visibleClients } = useStore();
@@ -79,17 +80,17 @@ export default function TasksPage() {
             <div className="bm-card__body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--bm-space-4)" }}>
               <div>
                 <div className="bm-label">За получаване</div>
-                <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700 }}>{fmtFull(p.owed)}</div>
+                <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700 }}><Money>{fmtFull(p.owed)}</Money></div>
                 <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{p.owedCount} завършени задачи</div>
               </div>
               <div>
                 <div className="bm-label">Предстоящо</div>
-                <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700 }}>{fmtFull(p.upcoming)}</div>
+                <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700 }}><Money>{fmtFull(p.upcoming)}</Money></div>
                 <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>по задачи в процес</div>
               </div>
               <div>
                 <div className="bm-label">Платено досега</div>
-                <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700, color: "var(--bm-success-600)" }}>{fmtFull(p.paidTotal)}</div>
+                <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700, color: "var(--bm-success-600)" }}><Money>{fmtFull(p.paidTotal)}</Money></div>
               </div>
             </div>
           </div>
@@ -110,8 +111,8 @@ export default function TasksPage() {
                     <span style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{m.name}</span>
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>предстоящо {fmtFull(p.upcoming)} · платено {fmtFull(p.paidTotal)}</span>
-                    <span style={{ fontWeight: 700 }}>{fmtFull(p.owed)}</span>
+                    <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>предстоящо <Money>{fmtFull(p.upcoming)}</Money> · платено <Money>{fmtFull(p.paidTotal)}</Money></span>
+                    <span style={{ fontWeight: 700 }}><Money>{fmtFull(p.owed)}</Money></span>
                     <button className="bm-btn bm-btn--secondary bm-btn--sm" disabled={p.owed === 0} onClick={() => markWorkerPaid(m.initials)} title="Маркира завършените неплатени задачи като платени">Платено</button>
                   </span>
                 </div>
@@ -190,7 +191,7 @@ export default function TasksPage() {
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{byId[t.client]?.name}</span>
                         {t.visibility === "private" ? <span style={{ flexShrink: 0 }} title="Лична задача — виждат я само изпълнителят и админът">🔒</span> : null}
                         {(currentUser.isAdmin || t.assignee === currentUser.initials) && (t.pay_amount || 0) > 0 ? (
-                          <span style={{ flexShrink: 0, fontWeight: 600, color: t.paid ? "var(--bm-success-600)" : "var(--bm-text-muted)" }}>· {fmtFull(t.pay_amount || 0)}{t.paid ? " ✓" : ""}</span>
+                          <span style={{ flexShrink: 0, fontWeight: 600, color: t.paid ? "var(--bm-success-600)" : "var(--bm-text-muted)" }}>· <Money>{fmtFull(t.pay_amount || 0)}</Money>{t.paid ? " ✓" : ""}</span>
                         ) : null}
                       </span>
                       <Avatar initials={t.assignee} style={{ width: 24, height: 24, fontSize: 10 }} />

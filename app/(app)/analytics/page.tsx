@@ -6,8 +6,9 @@ import {
   fmtFull, PIPELINE_STAGES, collectedRevenue, workerPaidCost, clientLtv,
   clientTenureDays, fmtTenure, revenueByMonth, clientStatusMeta, clientsById,
 } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
-function Kpi({ label, value, deltaCls, delta }: { label: string; value: string; deltaCls: string; delta: string }) {
+function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.ReactNode; deltaCls: string; delta: string }) {
   return (
     <div className="bm-card bm-stat">
       <div className="bm-stat__label">{label}</div>
@@ -29,7 +30,6 @@ export default function AnalyticsPage() {
   const netAll = revAll - paidAll;
 
   // ---- Сделки / успеваемост ----
-  const openLeads = leads.filter((l) => l.stage !== "won" && l.stage !== "lost");
   const won = leads.filter((l) => l.stage === "won").length;
   const lost = leads.filter((l) => l.stage === "lost").length;
   const winRate = won + lost ? Math.round((won / (won + lost)) * 100) : 0;
@@ -61,9 +61,9 @@ export default function AnalyticsPage() {
       </div>
 
       <section className="bm-stats">
-        <Kpi label="Приход този месец" value={money(revMonth)} deltaCls="bm-stat__delta--up" delta="реално събрано" />
-        <Kpi label="Приход общо" value={money(revAll)} deltaCls="bm-text-subtle" delta="от всички платени фактури" />
-        <Kpi label="Чиста печалба (общо)" value={money(netAll)} deltaCls={netAll >= 0 ? "bm-stat__delta--up" : "bm-stat__delta--down"} delta={`след €${Math.round(paidAll).toLocaleString("bg-BG")} за екипа`} />
+        <Kpi label="Приход този месец" value={<Money>{money(revMonth)}</Money>} deltaCls="bm-stat__delta--up" delta="реално събрано" />
+        <Kpi label="Приход общо" value={<Money>{money(revAll)}</Money>} deltaCls="bm-text-subtle" delta="от всички платени фактури" />
+        <Kpi label="Чиста печалба (общо)" value={<Money>{money(netAll)}</Money>} deltaCls={netAll >= 0 ? "bm-stat__delta--up" : "bm-stat__delta--down"} delta={`след €${Math.round(paidAll).toLocaleString("bg-BG")} за екипа`} />
         <Kpi label="Успеваемост" value={winRate + "%"} deltaCls="bm-text-subtle" delta={`${won + lost} затворени сделки`} />
       </section>
 
@@ -74,9 +74,9 @@ export default function AnalyticsPage() {
           {([{ t: "Този месец", rev: revMonth, cost: paidMonth, net: netMonth }, { t: "Цял период", rev: revAll, cost: paidAll, net: netAll }]).map((b) => (
             <div key={b.t} style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: 6 }}>
               <div className="bm-label">{b.t}</div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)" }}><span className="bm-text-subtle">Събрано</span><span style={{ fontFamily: "var(--bm-font-mono)" }}>{money(b.rev)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)" }}><span className="bm-text-subtle">За екипа</span><span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-danger-600)" }}>−{money(b.cost)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid var(--bm-border)", paddingTop: 6 }}><span>Чиста печалба</span><span style={{ fontFamily: "var(--bm-font-mono)", color: b.net >= 0 ? "var(--bm-success-600)" : "var(--bm-danger-600)" }}>{money(b.net)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)" }}><span className="bm-text-subtle">Събрано</span><span style={{ fontFamily: "var(--bm-font-mono)" }}><Money>{money(b.rev)}</Money></span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)" }}><span className="bm-text-subtle">За екипа</span><span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-danger-600)" }}>−<Money>{money(b.cost)}</Money></span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid var(--bm-border)", paddingTop: 6 }}><span>Чиста печалба</span><span style={{ fontFamily: "var(--bm-font-mono)", color: b.net >= 0 ? "var(--bm-success-600)" : "var(--bm-danger-600)" }}><Money>{money(b.net)}</Money></span></div>
             </div>
           ))}
         </div>
@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
                     <td>{byId[r.id]?.name || r.name}</td>
                     <td><span className={"bm-badge " + meta.cls}>{meta.label}</span></td>
                     <td>{fmtTenure(r.days)}</td>
-                    <td className="bm-table__num" style={{ fontFamily: "var(--bm-font-mono)" }}>{money(r.ltv)}</td>
+                    <td className="bm-table__num" style={{ fontFamily: "var(--bm-font-mono)" }}><Money>{money(r.ltv)}</Money></td>
                   </tr>
                 );
               })}
@@ -132,7 +132,7 @@ export default function AnalyticsPage() {
             <div key={s.title}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)", marginBottom: 6 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: s.dot }} />{s.title}</span>
-                <span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-text-muted)" }}>{money(s.val)}</span>
+                <span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-text-muted)" }}><Money>{money(s.val)}</Money></span>
               </div>
               <div style={{ height: 12, background: "var(--bm-surface-2)", borderRadius: "var(--bm-radius-full)", overflow: "hidden" }}><div style={{ height: "100%", width: Math.round((s.val / stageMax) * 100) + "%", background: s.dot, borderRadius: "inherit" }} /></div>
             </div>
@@ -147,7 +147,7 @@ export default function AnalyticsPage() {
             <div key={r.id} style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)" }}>
               <span style={{ width: 120, flexShrink: 0, fontSize: "var(--bm-text-sm)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
               <div style={{ flex: 1, height: 12, background: "var(--bm-surface-2)", borderRadius: "var(--bm-radius-full)", overflow: "hidden" }}><div style={{ height: "100%", background: "var(--bm-brand-500)", borderRadius: "inherit", width: Math.round((r.ltv / ltvMax) * 100) + "%" }} /></div>
-              <span style={{ width: 72, textAlign: "right", fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-sm)", color: "var(--bm-text-muted)" }}>{money(r.ltv)}</span>
+              <span style={{ width: 72, textAlign: "right", fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-sm)", color: "var(--bm-text-muted)" }}><Money>{money(r.ltv)}</Money></span>
             </div>
           ))}
           {ltvRows.every((r) => r.ltv === 0) && <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Все още няма платени фактури.</p>}

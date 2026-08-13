@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { clientsById, campaignStatusMeta, adStatusMeta, fmtFull, fmtK, AD_OBJECTIVE_LABELS, type CampaignStatus } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 const FILTERS: ["all" | CampaignStatus, string][] = [
   ["all", "Всички"], ["active", "Активни"], ["planning", "Планиране"], ["paused", "На пауза"], ["completed", "Завършени"],
@@ -55,8 +56,8 @@ export default function CampaignsPage() {
         <>
           <section className="bm-stats">
             <Kpi label="Активни кампании" value={active.length} delta={`от общо ${campaigns.length}`} />
-            <Kpi label="Активен бюджет" value={fmtK(activeBudget)} delta="в ход" />
-            <Kpi label="Общ управляван бюджет" value={fmtK(budget)} delta="всички кампании" />
+            <Kpi label="Активен бюджет" value={<Money>{fmtK(activeBudget)}</Money>} delta="в ход" />
+            <Kpi label="Общ управляван бюджет" value={<Money>{fmtK(budget)}</Money>} delta="всички кампании" />
           </section>
           <div className="bm-tabs" style={{ border: "none" }}>
             {FILTERS.map(([k, l]) => <button key={k} role="tab" className="bm-tab" aria-selected={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
@@ -74,7 +75,7 @@ export default function CampaignsPage() {
                     <span className={"bm-badge " + m.cls}>{m.label}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
-                    <div><div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>Бюджет</div><div style={{ fontWeight: 700, fontFamily: "var(--bm-font-mono)" }}>{fmtFull(c.budget)}</div></div>
+                    <div><div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>Бюджет</div><div style={{ fontWeight: 700, fontFamily: "var(--bm-font-mono)" }}><Money>{fmtFull(c.budget)}</Money></div></div>
                     <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", textAlign: "right" }}>{c.starts} – {c.ends}</div>
                   </div>
                 </div>
@@ -95,7 +96,7 @@ export default function CampaignsPage() {
           )}
           <section className="bm-stats">
             <Kpi label="Реклами" value={adDrafts.length} delta={`${publishedAds.length} публикувани`} />
-            <Kpi label="Общ бюджет" value={fmtFull(adBudget)} delta="по всички чернови" />
+            <Kpi label="Общ бюджет" value={<Money>{fmtFull(adBudget)}</Money>} delta="по всички чернови" />
             <Kpi label="Meta акаунт" value={metaConnected ? "Свързан" : "—"} delta={metaConnected ? "готов" : "не е свързан"} />
           </section>
           <div className="bm-table-wrap">
@@ -109,7 +110,7 @@ export default function CampaignsPage() {
                       <td style={{ fontWeight: 600 }}>{a.name}</td>
                       <td>{a.client ? byId[a.client]?.name || a.client : "—"}</td>
                       <td style={{ color: "var(--bm-text-muted)" }}>{AD_OBJECTIVE_LABELS[a.objective] || a.objective}</td>
-                      <td className="bm-table__num">{fmtFull(a.budget)}</td>
+                      <td className="bm-table__num"><Money>{fmtFull(a.budget)}</Money></td>
                       <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
                       <td style={{ textAlign: "right" }}><button className="bm-btn bm-btn--ghost bm-btn--sm" onClick={() => openModal({ kind: "ad", mode: "edit", ad: a })}>Отвори</button></td>
                     </tr>

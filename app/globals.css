@@ -128,6 +128,15 @@ a {
    до дъното и картите скролват вътре в колоната, а не цялата страница. */
 .pf-fs { position: fixed; inset: 0; z-index: 60; background: var(--bm-surface-2); display: flex; flex-direction: column; gap: var(--bm-space-3); padding: var(--bm-space-4); }
 .pf-fs__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--bm-space-3); flex-wrap: wrap; flex-shrink: 0; }
+/* Замъглени суми (поверителност): блър + курсор, докато не се отключи с парола.
+   inline-block, за да е стабилен блърът; select-none пази числото от копиране. */
+.bm-money-locked {
+  display: inline-block; filter: blur(10px); cursor: pointer;
+  user-select: none; -webkit-user-select: none; border-radius: 4px;
+}
+/* Мишката НЕ намалява блъра (иначе сумата се вижда). Само клавиатурен фокус подчертава. */
+.bm-money-locked:focus-visible { outline: 2px solid var(--bm-focus-ring); outline-offset: 2px; }
+
 /* Групов избор: фиксирана лента долу-център — плава над съдържанието, така че
    влизането в режим на избор не мести дъската/интерфейса. */
 .pf-batchbar {

@@ -6,6 +6,7 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { healthMeta, fmtK, fmtFull } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 export default function ClientsPage() {
   const { clients, openModal, getPortalLink } = useStore();
@@ -35,7 +36,7 @@ export default function ClientsPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <div>
           <h1>Клиенти</h1>
-          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{clients.length} акаунта · {fmtK(totalMrr)} месечно</p>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{clients.length} акаунта · <Money>{fmtK(totalMrr)}</Money> месечно</p>
         </div>
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center" }}>
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
@@ -67,7 +68,7 @@ export default function ClientsPage() {
               <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
                 <div>
                   <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>Месечно</div>
-                  <div style={{ fontWeight: 700, fontSize: "var(--bm-text-lg)", fontFamily: "var(--bm-font-mono)" }}>{fmtFull(c.mrr)}</div>
+                  <div style={{ fontWeight: 700, fontSize: "var(--bm-text-lg)", fontFamily: "var(--bm-font-mono)" }}><Money>{fmtFull(c.mrr)}</Money></div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}>
                   <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>Отговорник</span>

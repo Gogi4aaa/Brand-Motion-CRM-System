@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
+import { useMoneyLock } from "./MoneyLock";
 import { useStore } from "./store";
 
 function ago(iso: string) {
@@ -80,6 +81,15 @@ function ThemeToggle() {
   );
 }
 
+function MoneyToggle() {
+  const { revealed, requestUnlock, relock } = useMoneyLock();
+  return (
+    <button className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => (revealed ? relock() : requestUnlock())} aria-label={revealed ? "Скрий сумите" : "Покажи сумите"} title={revealed ? "Скрий сумите" : "Покажи сумите (с парола)"} style={{ fontSize: 15 }}>
+      {revealed ? "👁" : "🙈"}
+    </button>
+  );
+}
+
 export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pathname = usePathname();
   const { openModal, currentUser } = useStore();
@@ -100,6 +110,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
         <input className="bm-input" style={{ paddingLeft: 38 }} placeholder={currentUser.level === "worker" ? "Търси задачи…" : "Търси клиенти, фактури, задачи…"} />
       </div>
       <div style={{ flex: 1 }} />
+      <MoneyToggle />
       <ThemeToggle />
       <button className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => openModal({ kind: "password" })} aria-label="Смяна на парола" title="Смяна на парола" style={{ fontSize: 14 }}>
         🔑

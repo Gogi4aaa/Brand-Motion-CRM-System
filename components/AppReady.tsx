@@ -6,6 +6,7 @@ import { Topbar } from "./Topbar";
 import { Modals } from "./Modals";
 import { AccessGuard } from "./AccessGuard";
 import { PushInit } from "./PushInit";
+import { MoneyLockProvider } from "./MoneyLock";
 import { useStore } from "./store";
 
 export function AppReady({ children }: { children: React.ReactNode }) {
@@ -23,7 +24,7 @@ export function AppReady({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
+    <MoneyLockProvider>
       <div className="bm-shell">
         <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
         {navOpen && <div className="bm-nav-backdrop" onClick={() => setNavOpen(false)} />}
@@ -36,6 +37,6 @@ export function AppReady({ children }: { children: React.ReactNode }) {
       </div>
       <Modals />
       <PushInit />
-    </>
+    </MoneyLockProvider>
   );
 }

@@ -9,6 +9,7 @@ import { Avatar } from "@/components/Avatar";
 import { CommentThread } from "@/components/CommentThread";
 import { BrandTab } from "@/components/BrandTab";
 import { clientsById, invStatusMeta, prioMeta, taskStatusLabel, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtK, fmtFull } from "@/lib/data";
+import { Money } from "@/components/MoneyLock";
 
 function Kpi({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -73,10 +74,10 @@ export default function ClientDetailPage() {
       </div>
 
       <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
-        <Kpi label="Месечен приход" value={fmtFull(c.mrr)} />
-        <Kpi label="Дължимо салдо" value={fmtFull(balance)} />
+        <Kpi label="Месечен приход" value={<Money>{fmtFull(c.mrr)}</Money>} />
+        <Kpi label="Дължимо салдо" value={<Money>{fmtFull(balance)}</Money>} />
         <Kpi label="Отворени задачи" value={cTasks.filter((t) => t.status !== "done").length} />
-        <Kpi label="Обща стойност" value={fmtK(ltv)} />
+        <Kpi label="Обща стойност" value={<Money>{fmtK(ltv)}</Money>} />
       </section>
 
       <div className="bm-tabs">
@@ -98,7 +99,7 @@ export default function ClientDetailPage() {
                   <tr key={iv.id}>
                     <td style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)" }}>{iv.id}</td>
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
-                    <td className="bm-table__num">{fmtFull(iv.amount)}</td>
+                    <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.issued}</td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
                   </tr>
@@ -137,7 +138,7 @@ export default function ClientDetailPage() {
             <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
               {channels.map((x) => (
                 <div key={x.name}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)", marginBottom: 6 }}><span>{x.name}</span><span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-text-muted)" }}>{x.valStr}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)", marginBottom: 6 }}><span>{x.name}</span><span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-text-muted)" }}><Money>{x.valStr}</Money></span></div>
                   <div className="bm-progress"><div className="bm-progress__bar" style={{ width: x.w + "%" }} /></div>
                 </div>
               ))}
