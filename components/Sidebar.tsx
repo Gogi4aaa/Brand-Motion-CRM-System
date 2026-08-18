@@ -26,7 +26,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
-  const { invoices, clients, currentUser, signOut, team } = useStore();
+  const { invoices, clients, currentUser, signOut, team, uploadMemberAvatar } = useStore();
   const me = team.find((m) => m.initials === currentUser.initials);
   const myTitle = me ? memberTitle(me) : currentUser.role;
 
@@ -107,7 +107,22 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         </div>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", padding: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
-          <Avatar initials={currentUser.initials} size="md" />
+          {/* Клик върху собствения аватар = смяна на профилната снимка. Единственият
+              път за това извън /team, която сътрудниците не виждат. */}
+          {me ? (
+            <label className="tm-avatar-edit" title="Смени профилна снимка">
+              <Avatar initials={currentUser.initials} size="md" />
+              <span className="tm-avatar-edit__cam" aria-hidden="true">📷</span>
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMemberAvatar(me.id, f); e.currentTarget.value = ""; }}
+              />
+            </label>
+          ) : (
+            <Avatar initials={currentUser.initials} size="md" />
+          )}
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser.name}</div>
             <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{myTitle}</div>
