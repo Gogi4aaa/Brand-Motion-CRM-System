@@ -8,7 +8,7 @@ import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { CommentThread } from "@/components/CommentThread";
 import { BrandTab } from "@/components/BrandTab";
-import { clientsById, invStatusMeta, prioMeta, taskStatusLabel, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtK, fmtFull } from "@/lib/data";
+import { clientsById, invStatusMeta, prioMeta, taskStatusLabel, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtK, fmtFull, fmtDay } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
 
 function Kpi({ label, value }: { label: string; value: React.ReactNode }) {
@@ -100,7 +100,7 @@ export default function ClientDetailPage() {
                     <td style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)" }}>{iv.id}</td>
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
                     <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
-                    <td style={{ color: "var(--bm-text-subtle)" }}>{iv.issued}</td>
+                    <td style={{ color: "var(--bm-text-subtle)" }}>{fmtDay(iv.issued)}</td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
                   </tr>
                 );

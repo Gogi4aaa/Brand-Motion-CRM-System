@@ -49,9 +49,10 @@ export interface Invoice {
   client: string;
   amount: number;
   status: InvStatus;
-  issued: string;
+  issued: string;      // ISO ден (YYYY-MM-DD) — кога е издадена фактурата
   due: string;
-  created_at?: string; // set by the DB; drives the dashboard period filter
+  paid_at?: string | null; // ISO ден — кога е платена; по нея карат месечните сметки
+  created_at?: string; // set by the DB; кога е въведен редът (не е дата на издаване)
 }
 
 export interface Task {
@@ -319,14 +320,33 @@ export const fmtFull = (n: number) => {
 };
 export const fmtK = fmtFull;
 
+// ---- Дати по дни (YYYY-MM-DD) ----------------------------------------------
+// Датите на фактурите се пазят като ISO ден без час. Парсваме ги в ЛОКАЛНА
+// полунощ — `new Date("2026-08-01")` е UTC и може да падне в предния месец.
+const pad2 = (n: number) => String(n).padStart(2, "0");
+export const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+export const parseDay = (s?: string | null) => {
+  if (!s) return NaN;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  return new Date(s).getTime(); // наследени/timestamptz стойности
+};
+// „18 авг 2026“. Непозната стойност (стар свободен текст) се връща както е.
+export const fmtDay = (s?: string | null) => {
+  if (!s) return "—";
+  const t = parseDay(s);
+  return Number.isNaN(t) ? s : new Date(t).toLocaleDateString("bg-BG", { day: "numeric", month: "short", year: "numeric" });
+};
+
 // Начало на текущия месец + помощник за „платено този месец“ сметките.
 export const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime(); };
-export const inCurrentMonth = (iso?: string | null) => !!iso && new Date(iso).getTime() >= monthStart();
+export const inCurrentMonth = (iso?: string | null) => { const t = parseDay(iso); return !Number.isNaN(t) && t >= monthStart(); };
 
 // ---- Приход / печалба / задържане (Анализи + Възнаграждения) ----
-// Реално събрано = сумата на ПЛАТЕНИТЕ фактури (опц. само текущия месец по created_at).
+// Реално събрано = сумата на ПЛАТЕНИТЕ фактури (опц. само текущия месец по paid_at —
+// т.е. кога парите са влезли, не кога е въведен редът).
 export const collectedRevenue = (invoices: Invoice[], onlyMonth = false) =>
-  invoices.filter((i) => i.status === "paid" && (!onlyMonth || inCurrentMonth(i.created_at)))
+  invoices.filter((i) => i.status === "paid" && (!onlyMonth || inCurrentMonth(i.paid_at)))
     .reduce((a, i) => a + (i.amount || 0), 0);
 
 // Изплатено на работници = сумата на pay_amount за ПЛАТЕНИТЕ задачи (месец = по paid_at).
@@ -354,14 +374,15 @@ export const fmtTenure = (days: number) => {
   const rem = months % 12;
   return rem ? `${y}г ${rem}м` : `${y} ${y === 1 ? "година" : "години"}`;
 };
-// Събрано по месеци (последните n месеца) — за бар графиката „Приход по месеци“.
+// Събрано по месеци (последните n месеца, по датата на плащане) — за бар
+// графиката „Приход по месеци“.
 export const revenueByMonth = (invoices: Invoice[], n = 12) => {
   const now = new Date();
   const out: { key: string; label: string; val: number }[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = monthKey(d);
-    const val = invoices.filter((iv) => iv.status === "paid" && iv.created_at && monthKey(new Date(iv.created_at)) === key)
+    const val = invoices.filter((iv) => { const t = iv.status === "paid" ? parseDay(iv.paid_at) : NaN; return !Number.isNaN(t) && monthKey(new Date(t)) === key; })
       .reduce((a, iv) => a + (iv.amount || 0), 0);
     out.push({ key, label: monthLabel(key), val });
   }
@@ -549,14 +570,20 @@ export interface ContentItem {
   hook_type?: string; // see HOOK_TYPES
   cta?: string; // closing call to action
   caption?: string; // platform caption for publishing
-  hashtags?: string; // space-separated hashtags
+  hashtags?: string; // стари данни — полето отпадна от формата (AI ги слага в caption)
   cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
-  notion_url: string;
+  notion_url?: string; // стари данни — полето отпадна от формата
   footage_url?: string; // линк към суровия материал (Drive папка от снимачния ден)
-  thumbnail_url?: string; // Google Drive линк за преглед на thumbnail-ите (всеки може да сменя)
+  thumbnail_url?: string; // „Линк за снимка на видеото“ — Drive линк, всеки може да сменя
   final_url?: string; // линк към ГОТОВАТА (монтирана) версия — тегли се оттук за публикуване
   published?: boolean;
   published_at?: string | null; // кога е публикувано — бордът архивира по него
+  // Корекции по монтажа: пише ги отговорникът на етап „Преглед“, монтажистът
+  // ги отмята. Държим ги отделно от notes (брифа) — вж. миграция 0043.
+  corrections?: string;
+  corrections_done?: boolean;
+  corrections_by?: string; // инициали на автора
+  corrections_at?: string | null;
   current_stage?: string;
   stages?: StageState[];
 }

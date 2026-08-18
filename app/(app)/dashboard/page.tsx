@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
-import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor, inCurrentMonth } from "@/lib/data";
+import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor, inCurrentMonth, parseDay } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
 
 type Period = "today" | "week" | "month";
@@ -74,7 +74,7 @@ export default function DashboardPage() {
     else d.setDate(d.getDate() - (period === "week" ? 7 : 30));
     return d.getTime();
   })();
-  const inPeriod = (iso?: string) => !iso || new Date(iso).getTime() >= since;
+  const inPeriod = (iso?: string | null) => { if (!iso) return true; const t = parseDay(iso); return Number.isNaN(t) || t >= since; };
   const myOpen = tasks.filter((t) => t.assignee === currentUser.initials && t.status !== "done").length;
   const myDone = tasks.filter((t) => t.assignee === currentUser.initials && t.status === "done").length;
   const myVideos = contentItems.filter((c) => (c.stages || []).some((s) => s.key === (c.current_stage || "strategy") && s.assignee === currentUser.initials)).length;
@@ -86,8 +86,9 @@ export default function DashboardPage() {
 
   const outstanding = invoices.filter((i) => i.status === "pending" || i.status === "overdue");
   const overdue = invoices.filter((i) => i.status === "overdue");
-  const paid = invoices.filter((i) => i.status === "paid" && inPeriod(i.created_at));
-  const recent = invoices.filter((i) => inPeriod(i.created_at)).slice(0, 5);
+  // Парите се броят по датата на плащане; списъкът „последни фактури“ — по издаване.
+  const paid = invoices.filter((i) => i.status === "paid" && inPeriod(i.paid_at));
+  const recent = invoices.filter((i) => inPeriod(i.issued)).slice(0, 5);
   const myTasks = tasks.filter((t) => t.assignee === currentUser.initials);
   const openTasks = tasks.filter((t) => t.status !== "done");
   const sum = (a: typeof invoices) => a.reduce((x, b) => x + b.amount, 0);

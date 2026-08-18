@@ -99,8 +99,6 @@ export const contentItemSchema = z.object({
   script: z.string().trim(),
   cta: z.string().trim(),
   caption: z.string().trim(),
-  hashtags: z.string().trim(),
-  notion_url: z.string().trim(),
   footage_url: z.string().trim(),
   thumbnail_url: z.string().trim(),
   final_url: z.string().trim(),
@@ -134,6 +132,8 @@ export const invoiceSchema = z.object({
   client: z.string().min(1, "Pick a client"),
   amount: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),
   status: z.enum(["paid", "pending", "overdue", "draft"]),
+  issued: z.string().min(1, "Избери дата на издаване"),
   due: z.string(),
+  paid_at: z.string().optional(),
 });
 export type InvoiceForm = z.infer<typeof invoiceSchema>;

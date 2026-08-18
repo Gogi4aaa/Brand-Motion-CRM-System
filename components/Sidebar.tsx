@@ -32,7 +32,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
 
   // Събрано ТОЗИ месец срещу целта (сборът от месечните такси на активните
   // клиенти) — реални числа вместо закования някога „Юни · 72%“.
-  const collected = invoices.filter((i) => i.status === "paid" && inCurrentMonth(i.created_at)).reduce((a, b) => a + b.amount, 0);
+  const collected = invoices.filter((i) => i.status === "paid" && inCurrentMonth(i.paid_at)).reduce((a, b) => a + b.amount, 0);
   const target = clients.filter((c) => c.status === "Active").reduce((a, b) => a + b.mrr, 0);
   const pct = target > 0 ? Math.min(100, Math.round((collected / target) * 100)) : null;
   const monthName = new Date().toLocaleDateString("bg-BG", { month: "long" });

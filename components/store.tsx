@@ -22,6 +22,7 @@ import {
   cyclePhaseMeta,
   monthKey,
   monthLabel,
+  todayISO,
   seedIdeas,
   visibleClientsFor,
   type Idea,
@@ -195,6 +196,8 @@ interface Store {
   completeVideo: (itemId: string) => void;
   setStageAssignee: (itemId: string, stageKey: string, assignee: string) => void;
   setStageStatus: (itemId: string, stageKey: string, status: StageStatus) => void;
+  saveCorrections: (itemId: string, text: string) => void;
+  setCorrectionsDone: (itemId: string, done: boolean) => void;
   updateMemberRoles: (memberId: string, roles: string[]) => void;
   updateMemberRole: (memberId: string, role: AccessRole) => void;
   updateMemberClients: (memberId: string, clientIds: string[]) => void;
@@ -861,7 +864,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const client = clients.find((c) => c.id === clientId);
     const stages = defaultStages(team, client?.editor || "", currentUser.initials, f.type);
     const date = f.date || null;
-    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, current_stage: "strategy", stages };
+    const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, current_stage: "strategy", stages };
     const { client_id: newClient, ...restRow } = row;
     setContentItems((list) => [...list, { ...restRow, client: newClient }]);
     sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] addContentItem failed:", error));
@@ -891,7 +894,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // „Текст на поста“; сценарийните полета остават празни.
       const isPost = type === "post";
       const postText = [v.hook, v.script, v.cta].filter(Boolean).join("\n\n");
-      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: notes || "", script: isPost ? "" : v.script, hook: isPost ? "" : v.hook || "", cta: isPost ? "" : v.cta || "", caption: isPost ? postText : "", cycle_id: cycleId || null, notion_url: "", footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
+      return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: notes || "", script: isPost ? "" : v.script, hook: isPost ? "" : v.hook || "", cta: isPost ? "" : v.cta || "", caption: isPost ? postText : "", cycle_id: cycleId || null, footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
@@ -944,7 +947,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!clientId) return;
     const client = clients.find((c) => c.id === clientId);
     const stages = defaultStages(team, client?.editor || "", currentUser.initials, "reel");
-    const row = { id: "ct-" + Date.now(), client_id: clientId, date: null as string | null, type: "reel" as ContentType, title: idea.title, notes: idea.description, script: "", hook: idea.hook, hook_type: "", cta: "", caption: "", hashtags: "", notion_url: "", published: false, current_stage: "strategy", stages };
+    const row = { id: "ct-" + Date.now(), client_id: clientId, date: null as string | null, type: "reel" as ContentType, title: idea.title, notes: idea.description, script: "", hook: idea.hook, hook_type: "", cta: "", caption: "", published: false, current_stage: "strategy", stages };
     const { client_id: rowClient, ...rest } = row;
     setContentItems((list) => [...list, { ...rest, client: rowClient }]);
     sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] promoteIdea insert failed:", error));
@@ -1225,6 +1228,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     persistItem(itemId, { stages });
   }, [contentItems, tasks, syncStageTask, notify, persistItem]);
 
+  // ---- Корекции по монтажа ----
+  // Нарочно НЕ минават през формата на модала (updateContentItem): правата са
+  // различни (пише Прегледът, отмята монтажистът) и общият „Запази“ би
+  // презаписвал чужди корекции с остарял снимък от отворен формуляр.
+  const saveCorrections = useCallback((itemId: string, text: string) => {
+    const c = contentItems.find((x) => x.id === itemId);
+    if (!c) return;
+    const body = text.trim();
+    const changed = body !== (c.corrections || "");
+    const patch = {
+      corrections: body,
+      // Нов текст връща видеото „за поправка“; изчистването пази старото състояние.
+      corrections_done: body ? (changed ? false : c.corrections_done ?? false) : c.corrections_done ?? false,
+      corrections_by: body ? currentUser.initials : c.corrections_by ?? "",
+      corrections_at: body ? new Date().toISOString() : c.corrections_at ?? null,
+    };
+    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, ...patch } : x)));
+    persistItem(itemId, patch);
+    if (body && changed) {
+      const key = c.type === "post" ? "design" : "edit";
+      const editor = (c.stages || []).find((s) => s.key === key)?.assignee;
+      if (editor) notify(editor, `Корекции по „${c.title || "(без заглавие)"}“`, { entity_type: "content", entity_id: itemId, link: itemId });
+    }
+  }, [contentItems, currentUser.initials, notify, persistItem]);
+
+  const setCorrectionsDone = useCallback((itemId: string, done: boolean) => {
+    const c = contentItems.find((x) => x.id === itemId);
+    if (!c) return;
+    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, corrections_done: done } : x)));
+    persistItem(itemId, { corrections_done: done });
+    if (done && c.corrections_by) notify(c.corrections_by, `Корекциите по „${c.title || "(без заглавие)"}“ са отстранени`, { entity_type: "content", entity_id: itemId, link: itemId });
+  }, [contentItems, notify, persistItem]);
+
   // Profile edits go through RLS: without the "profiles admin update" policy
   // (migration 0020) an admin's update of ANOTHER member matches 0 rows and
   // Supabase reports success — so we select the row back and treat 0 rows as
@@ -1328,7 +1364,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Първото минаване през "публикувано" печата published_at — по него бордът
     // архивира картата след BOARD_RETENTION_DAYS.
     const publishedAt = f.published ? (prev?.published ? prev.published_at ?? null : new Date().toISOString()) : null;
-    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, hashtags: f.hashtags, notion_url: f.notion_url, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, published_at: publishedAt };
+    const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, published_at: publishedAt };
     setContentItems((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
     setModal(null);
@@ -1425,9 +1461,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return Number.isNaN(n) ? mx : Math.max(mx, n);
       }, 1051);
       const id = "INV-" + (maxNum + 1);
-      const row = { id, client_id: f.client, amount, status: f.status, issued: "Today", due: f.due || "—" };
+      // Реални дати: issued = кога е издадена, paid_at = кога са влезли парите
+      // (по нея карат месечните сметки). Празно paid_at за неплатена фактура.
+      const issued = f.issued || todayISO();
+      const paid_at = f.status === "paid" ? (f.paid_at || todayISO()) : null;
+      const row = { id, client_id: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at };
       sb()?.from("invoices").insert(row).then(({ error }) => error && console.error("[BrandMotion] addInvoice failed:", error));
-      return [{ id, client: f.client, amount, status: f.status, issued: "Today", due: f.due || "—" }, ...list];
+      return [{ id, client: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at }, ...list];
     });
     logActivity(`създаде фактура за ${clients.find((c) => c.id === f.client)?.name || f.client}`, "admin");
     setModal(null);
@@ -1435,8 +1475,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateInvoice = useCallback((id: string, f: InvoiceForm) => {
     const amount = Math.round((f.amount || 0) * 100) / 100;
-    const patch = { client_id: f.client, amount, status: f.status, due: f.due || "—" };
-    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount, status: f.status, due: f.due || "—" } : iv)));
+    const issued = f.issued || todayISO();
+    const paid_at = f.status === "paid" ? (f.paid_at || todayISO()) : null;
+    const patch = { client_id: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at };
+    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at } : iv)));
     sb()?.from("invoices").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateInvoice failed:", error));
     logActivity(`обнови фактура ${id}`, "admin");
     setModal(null);
@@ -1450,8 +1492,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [logActivity]);
 
   const markPaid = useCallback((id: string) => {
-    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, status: "paid" } : iv)));
-    sb()?.from("invoices").update({ status: "paid" }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] markPaid failed:", error));
+    // Денят на маркиране е денят на събиране — оттук идват месечните суми.
+    const paid_at = todayISO();
+    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, status: "paid", paid_at } : iv)));
+    sb()?.from("invoices").update({ status: "paid", paid_at }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] markPaid failed:", error));
     logActivity(`отбеляза ${id} като платена`, "admin");
   }, [logActivity]);
 
@@ -1577,7 +1621,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
-    advanceStage, completeVideo, setStageAssignee, setStageStatus, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
+    advanceStage, completeVideo, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
     bookings, addBooking, deleteBooking, approveBooking, declineBooking, getBookingFeedUrl,
     modal, openModal: setModal, closeModal: () => setModal(null),

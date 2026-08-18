@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, type ContentType } from "@/lib/data";
+import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 import { BrandSectionsView } from "./BrandTab";
@@ -702,7 +702,7 @@ function MetricsEditor({ itemId }: { itemId: string }) {
 }
 
 function ContentModal() {
-  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, dismissSuggestion, setStageAssignee, setStageStatus } = useStore();
+  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, dismissSuggestion, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone } = useStore();
   const editing = modal?.kind === "content" && modal.mode === "edit" ? modal.item : null;
   const live = editing ? contentItems.find((c) => c.id === editing.id) : null;
   const stages = live?.stages || [];
@@ -711,6 +711,16 @@ function ContentModal() {
   // Датите и „Публикувано“ са само за Публикуващия кръг — иначе полето Дата
   // е заден вход към насрочване покрай заключения календар.
   const canPublish = canAssignStages || (team.find((m) => m.initials === currentUser.initials)?.roles || []).includes("review");
+  // Корекции: пише ги този, който е на етап „Преглед“; отмята ги монтажистът
+  // (при пост — този на „Дизайн“). Админ/мениджър могат и двете.
+  const editStageKey = ((live?.type ?? editing?.type) === "post") ? "design" : "edit";
+  const stageOwner = (key: string) => stages.find((x) => x.key === key)?.assignee;
+  const canWriteCorrections = canAssignStages || stageOwner("review") === currentUser.initials;
+  const canResolveCorrections = canAssignStages || stageOwner(editStageKey) === currentUser.initials;
+  const liveCorrections = live?.corrections ?? "";
+  const corrDone = live?.corrections_done ?? false;
+  const [corrDraft, setCorrDraft] = useState(liveCorrections);
+  useEffect(() => { setCorrDraft(liveCorrections); }, [liveCorrections]);
   const assigneeOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
   const createCtx = modal?.kind === "content" && modal.mode === "create" ? modal : null;
   const clientId = editing ? (live?.client ?? "") : (createCtx?.clientId ?? "");
@@ -718,8 +728,8 @@ function ContentModal() {
   const { register, handleSubmit, getValues, setValue, watch, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
-      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", hashtags: editing.hashtags ?? "", notion_url: editing.notion_url, footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", final_url: editing.final_url ?? "", published: editing.published ?? false }
-      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", hashtags: "", notion_url: "", footage_url: "", thumbnail_url: "", final_url: "", published: false },
+      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", final_url: editing.final_url ?? "", published: editing.published ?? false }
+      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", footage_url: "", thumbnail_url: "", final_url: "", published: false },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
   // Постът има различни полета: без Кука/Сценарий/CTA, с „Текст на поста“.
@@ -761,8 +771,9 @@ function ContentModal() {
       const res = await fetch("/api/ai/caption", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, script: getValues("script"), ...brandCtx }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Грешка при генериране.");
-      setValue("caption", data.caption as string);
-      setValue("hashtags", (data.hashtags as string[]).map((h) => "#" + h.replace(/^#/, "")).join(" "));
+      // Полето „Хаштагове“ отпадна — закачаме ги на нов ред под caption-а.
+      const tags = (data.hashtags as string[]).map((h) => "#" + h.replace(/^#/, "")).join(" ");
+      setValue("caption", [data.caption as string, tags].filter(Boolean).join("\n\n"));
     } catch (e) { setAiError(e instanceof Error ? e.message : "Грешка при генериране."); }
     finally { setAiBusy(""); }
   };
@@ -791,6 +802,57 @@ function ContentModal() {
           </div>
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. промо продукт" /><Err msg={errors.title?.message} /></div>
           <div className="bm-field"><label className="bm-label">{isPost ? "Задание" : "Бележки"}</label><textarea className="bm-textarea" {...register("notes")} placeholder={isPost ? "Какво да казва постът, акценти, визия…" : "Бриф, референции, бележки…"} /></div>
+
+          {/* Корекции — всичко за поправка на едно място, за да го чете монтажистът.
+              Записва се отделно от формата (собствен бутон), защото правата и
+              жизненият му цикъл са различни от останалите полета. */}
+          {editing && (
+            <div
+              className="bm-field"
+              style={liveCorrections && !corrDone
+                ? { border: "1px solid var(--bm-warning-500)", background: "var(--bm-warning-50)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", gap: "var(--bm-space-2)" }
+                : { border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", gap: "var(--bm-space-2)" }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-2)" }}>
+                <label className="bm-label" style={{ fontWeight: 700, margin: 0 }}>✂️ Корекции</label>
+                {liveCorrections && (
+                  <span className={"bm-badge " + (corrDone ? "bm-badge--success" : "bm-badge--warning")}>{corrDone ? "Отстранени" : "За поправка"}</span>
+                )}
+              </div>
+              {liveCorrections && live?.corrections_by && (
+                <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>
+                  от {team.find((m) => m.initials === live.corrections_by)?.name || live.corrections_by}
+                  {live.corrections_at ? " · " + new Date(live.corrections_at).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                </span>
+              )}
+              <textarea
+                className="bm-textarea"
+                style={{ minHeight: 120 }}
+                value={corrDraft}
+                readOnly={!canWriteCorrections}
+                onChange={(e) => setCorrDraft(e.target.value)}
+                placeholder={canWriteCorrections ? "Какво да се поправи — по точки, с таймкодове…" : "Корекциите се пишат от отговорника на етап Преглед."}
+              />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
+                <label className="bm-checkbox" title={canResolveCorrections ? "" : "Отмята се от монтажиста по видеото"}>
+                  <input
+                    type="checkbox"
+                    checked={corrDone}
+                    disabled={!canResolveCorrections || !liveCorrections}
+                    onChange={(e) => setCorrectionsDone(editing.id, e.target.checked)}
+                  /> Отстранени
+                </label>
+                {canWriteCorrections && (
+                  <button
+                    type="button"
+                    className="bm-btn bm-btn--secondary bm-btn--sm"
+                    disabled={corrDraft === liveCorrections}
+                    onClick={() => saveCorrections(editing.id, corrDraft)}
+                  >Запази корекциите</button>
+                )}
+              </div>
+            </div>
+          )}
 
           {!isPost && (
           <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
@@ -826,8 +888,6 @@ function ContentModal() {
               <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" disabled={aiBusy !== ""} onClick={genCaption}>{aiBusy === "caption" ? "Генерирам…" : "✨ AI caption + хаштагове"}</button>
             </div>
             <div className="bm-field"><label className="bm-label">{isPost ? "Текст на поста" : "Caption"}</label><textarea className="bm-textarea" style={isPost ? { minHeight: 140 } : undefined} {...register("caption")} placeholder={isPost ? "Пълният текст на поста — кука в първия ред…" : "Описанието на публикацията — кука в първия ред…"} /></div>
-            <div className="bm-field"><label className="bm-label">Хаштагове</label><input className="bm-input" {...register("hashtags")} placeholder="#бранд #ниша #широк" /></div>
-            <div className="bm-field"><label className="bm-label">Notion линк (по избор)</label><input className="bm-input" {...register("notion_url")} placeholder="https://notion.so/…" /></div>
             <div className="bm-field">
               <label className="bm-label">{isPost ? "Визия / материали (линк)" : "Суров материал (линк)"}</label>
               <input className="bm-input" {...register("footage_url")} placeholder="https://drive.google.com/…" />
@@ -835,10 +895,10 @@ function ContentModal() {
                 <a href={live?.footage_url || editing?.footage_url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-brand-600)", fontWeight: 600, marginTop: 4 }}>{isPost ? "Отвори визиите ↗" : "Отвори суровия материал ↗"}</a>
               )}
             </div>
-            {/* Thumbnail линк (Google Drive) — всеки може да добавя/сменя. Ако сочи
+            {/* Снимка на видеото (Drive линк) — всеки може да добавя/сменя. Ако сочи
                 към конкретен Drive файл, показваме и вградена картинка-преглед. */}
             <div className="bm-field">
-              <label className="bm-label">Thumbnail (Google Drive линк)</label>
+              <label className="bm-label">Линк за снимка на видеото</label>
               <input className="bm-input" {...register("thumbnail_url")} placeholder="https://drive.google.com/…" />
               {(() => {
                 const url = watch("thumbnail_url")?.trim();
@@ -1211,12 +1271,14 @@ function InvoiceModal() {
   const { modal, closeModal, addInvoice, updateInvoice, clients } = useStore();
   const editing = modal?.kind === "invoice" && modal.mode === "edit" ? modal.invoice : null;
   const presetClient = modal?.kind === "invoice" && modal.mode === "create" ? modal.clientId : undefined;
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<InvoiceForm>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<InvoiceForm>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: editing
-      ? { client: editing.client, amount: editing.amount, status: editing.status, due: editing.due }
-      : { client: presetClient ?? clients[0]?.id ?? "", amount: 0, status: "draft", due: "—" },
+      ? { client: editing.client, amount: editing.amount, status: editing.status, issued: editing.issued, due: editing.due, paid_at: editing.paid_at || todayISO() }
+      : { client: presetClient ?? clients[0]?.id ?? "", amount: 0, status: "draft", issued: todayISO(), due: "—", paid_at: todayISO() },
   });
+  // Датата на плащане има смисъл само за платена фактура — тя движи месечните сметки.
+  const isPaid = watch("status") === "paid";
   const onSubmit = (f: InvoiceForm) => (editing ? updateInvoice(editing.id, f) : addInvoice(f));
 
   return (
@@ -1228,7 +1290,17 @@ function InvoiceModal() {
             <div className="bm-field"><label className="bm-label">Сума (EUR)</label><input className="bm-input" type="number" step="0.01" {...register("amount", { valueAsNumber: true })} placeholder="0.00" /><Err msg={errors.amount?.message} /></div>
             <div className="bm-field"><label className="bm-label">Падеж</label><input className="bm-input" {...register("due")} placeholder="15 юли" /></div>
           </div>
-          <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="draft">Чернова</option><option value="pending">Чакаща</option><option value="overdue">Просрочена</option><option value="paid">Платена</option></select></div>
+          <div className="bm-form-row">
+            <div className="bm-field"><label className="bm-label">Издадена на</label><input className="bm-input" type="date" {...register("issued")} /><Err msg={errors.issued?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="draft">Чернова</option><option value="pending">Чакаща</option><option value="overdue">Просрочена</option><option value="paid">Платена</option></select></div>
+          </div>
+          {isPaid && (
+            <div className="bm-field">
+              <label className="bm-label">Платена на</label>
+              <input className="bm-input" type="date" {...register("paid_at")} />
+              <small className="bm-text-subtle">По тази дата се смятат „Платени този месец“ и приходът по месеци.</small>
+            </div>
+          )}
         </div>
         <div className="bm-modal__footer">
           <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>

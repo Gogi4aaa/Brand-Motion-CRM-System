@@ -28,8 +28,9 @@ create table invoices (
   client_id text not null references clients(id) on delete cascade,
   amount    integer not null default 0,
   status    text not null check (status in ('paid','pending','overdue','draft')),
-  issued    text not null default '',
+  issued    date not null default current_date,   -- кога е издадена фактурата
   due       text not null default '—',
+  paid_at   date,                                 -- кога е платена (месечните сметки карат по нея)
   created_at timestamptz not null default now()
 );
 

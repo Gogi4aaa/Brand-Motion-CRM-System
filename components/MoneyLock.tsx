@@ -1,18 +1,23 @@
 "use client";
 
-// Блър на всички суми в админ панела (поверителност — отварям системата навсякъде).
-// Всяка сума минава през <Money>. По подразбиране е замъглена; цъкане иска парола
-// (акаунт паролата на текущия потребител). Верен вход отключва ВСИЧКИ суми за
-// сесията (докато не се презареди или се заключи ръчно от бутона в лентата горе).
+// Блър на всички суми — САМО за администратора (поверителност, отварям системата
+// навсякъде). Всяка сума минава през <Money>. При админ по подразбиране е замъглена;
+// цъкане иска парола (акаунт паролата на текущия потребител). Верен вход отключва
+// ВСИЧКИ суми за сесията (докато не се презареди или се заключи ръчно от бутона горе).
+// Мениджъри и сътрудници виждат сумите си нормално — те виждат само собствените си
+// пари (ограничено сървърно от RLS), така че парола за тях е излишна пречка.
 
 import { createContext, useContext, useState, useCallback } from "react";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
+import { useStore } from "./store";
 
-interface MoneyCtx { revealed: boolean; requestUnlock: () => void; relock: () => void; }
-const Ctx = createContext<MoneyCtx>({ revealed: true, requestUnlock: () => {}, relock: () => {} });
+interface MoneyCtx { enabled: boolean; revealed: boolean; requestUnlock: () => void; relock: () => void; }
+const Ctx = createContext<MoneyCtx>({ enabled: false, revealed: true, requestUnlock: () => {}, relock: () => {} });
 export const useMoneyLock = () => useContext(Ctx);
 
 export function MoneyLockProvider({ children }: { children: React.ReactNode }) {
+  const { currentUser } = useStore();
+  const locking = currentUser.isAdmin;
   const [revealed, setRevealed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return sessionStorage.getItem("bm-money-revealed") === "1";
@@ -23,8 +28,8 @@ export function MoneyLockProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
 
   const reveal = () => { setRevealed(true); try { sessionStorage.setItem("bm-money-revealed", "1"); } catch { /* ignore */ } };
-  const relock = useCallback(() => { setRevealed(false); try { sessionStorage.removeItem("bm-money-revealed"); } catch { /* ignore */ } }, []);
-  const requestUnlock = useCallback(() => { setErr(""); setPw(""); setOpen(true); }, []);
+  const relock = useCallback(() => { if (!locking) return; setRevealed(false); try { sessionStorage.removeItem("bm-money-revealed"); } catch { /* ignore */ } }, [locking]);
+  const requestUnlock = useCallback(() => { if (!locking) return; setErr(""); setPw(""); setOpen(true); }, [locking]);
 
   const submit = async () => {
     setErr(""); setBusy(true);
@@ -43,9 +48,9 @@ export function MoneyLockProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ revealed, requestUnlock, relock }}>
+    <Ctx.Provider value={{ enabled: locking, revealed: locking ? revealed : true, requestUnlock, relock }}>
       {children}
-      {open && (
+      {locking && open && (
         <div className="bm-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
           <div className="bm-modal" style={{ maxWidth: 380 }}>
             <div className="bm-modal__header"><h3>Отключи сумите</h3></div>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
-import { clientsById, invStatusMeta, fmtK, fmtFull, monthStart, type InvStatus } from "@/lib/data";
+import { clientsById, invStatusMeta, fmtK, fmtFull, monthStart, parseDay, fmtDay, type InvStatus } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
 
 function Kpi({ label, value, color, deltaCls, delta }: { label: string; value: React.ReactNode; color?: string; deltaCls: string; delta: string }) {
@@ -29,11 +29,11 @@ export default function InvoicesPage() {
   const filtered = filter === "all" ? invoices : invoices.filter((i) => i.status === (filter as InvStatus));
   const sum = (a: typeof invoices) => a.reduce((x, b) => x + b.amount, 0);
 
-  // „Платени този месец“ смята само фактурите от текущия месец; делтата е
-  // реално сравнение с предходния, не декоративен процент.
+  // „Платени този месец“ смята по ДАТАТА НА ПЛАЩАНЕ (кога са влезли парите),
+  // не по кога е въведен редът; делтата е реално сравнение с предходния месец.
   const ms = monthStart();
   const prevMs = (() => { const d = new Date(ms); d.setMonth(d.getMonth() - 1); return d.getTime(); })();
-  const ts = (i: { created_at?: string }) => (i.created_at ? new Date(i.created_at).getTime() : 0);
+  const ts = (i: { paid_at?: string | null }) => { const t = parseDay(i.paid_at); return Number.isNaN(t) ? 0 : t; };
   const paidThisMonth = invoices.filter((i) => i.status === "paid" && ts(i) >= ms);
   const paidPrevMonth = invoices.filter((i) => i.status === "paid" && ts(i) >= prevMs && ts(i) < ms);
   const prevSum = sum(paidPrevMonth);
@@ -81,7 +81,7 @@ export default function InvoicesPage() {
                   <span className={"bm-badge " + m.cls}>{m.label}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", fontFamily: "var(--bm-font-mono)" }}>{iv.id} · {iv.issued}{iv.due ? ` → ${iv.due}` : ""}</span>
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", fontFamily: "var(--bm-font-mono)" }}>{iv.id} · {fmtDay(iv.issued)}{iv.due ? ` → ${iv.due}` : ""}</span>
                   <span style={{ fontWeight: 700 }}><Money>{fmtFull(iv.amount)}</Money></span>
                 </div>
                 <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
@@ -111,7 +111,7 @@ export default function InvoicesPage() {
                     <td><div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)" }}><span className="bm-avatar bm-avatar--sm" style={{ width: 24, height: 24, fontSize: 10 }}>{c?.initials || "—"}</span> {c?.name || iv.client}</div></td>
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
                     <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
-                    <td style={{ color: "var(--bm-text-subtle)" }}>{iv.issued}</td>
+                    <td style={{ color: "var(--bm-text-subtle)" }}>{fmtDay(iv.issued)}</td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "flex", gap: "var(--bm-space-2)", justifyContent: "flex-end" }}>

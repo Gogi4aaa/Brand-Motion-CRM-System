@@ -501,7 +501,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                       return (
                         <div key={iv.id} className="pt-invrow">
                           <span style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{iv.id}</span>
-                          <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>издадена {iv.issued}{iv.due ? ` · падеж ${iv.due}` : ""}</span>
+                          <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>издадена {fmtDay(iv.issued)}{iv.due ? ` · падеж ${iv.due}` : ""}</span>
                           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <span style={{ fontWeight: 700 }}>{money(iv.amount)}</span>
                             <span className={"bm-badge " + m.cls}>{m.label}</span>

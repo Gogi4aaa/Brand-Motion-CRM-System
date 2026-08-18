@@ -110,7 +110,8 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
         <input className="bm-input" style={{ paddingLeft: 38 }} placeholder={currentUser.level === "worker" ? "Търси задачи…" : "Търси клиенти, фактури, задачи…"} />
       </div>
       <div style={{ flex: 1 }} />
-      <MoneyToggle />
+      {/* Заключването на сумите е само за админа — за останалите бутонът не съществува. */}
+      {currentUser.isAdmin && <MoneyToggle />}
       <ThemeToggle />
       <button className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => openModal({ kind: "password" })} aria-label="Смяна на парола" title="Смяна на парола" style={{ fontSize: 14 }}>
         🔑
