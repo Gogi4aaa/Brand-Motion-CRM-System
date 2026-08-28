@@ -2,7 +2,7 @@
 
 import { useStore } from "@/components/store";
 import { Avatar } from "@/components/Avatar";
-import { PRODUCTION_ROLES, ROLE_LABELS, memberTitle, type AccessRole } from "@/lib/data";
+import { PRODUCTION_ROLES, ROLE_LABELS, memberTitle, videoPriceFor, type AccessRole } from "@/lib/data";
 
 const ROLE_HELP: Record<AccessRole, string> = {
   admin: "Пълен достъп до всичко, вкл. фактури и анализи.",
@@ -11,7 +11,9 @@ const ROLE_HELP: Record<AccessRole, string> = {
 };
 
 export default function TeamPage() {
-  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, setMemberRate, deleteMember, approveMember, openModal } = useStore();
+  const { team, tasks, clients, usingMock, currentUser, updateMemberRole, updateMemberRoles, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, setMemberRate, setVideoRate, videoRates, deleteMember, approveMember, openModal } = useStore();
+  // Показваната тарифа: общият ред във video_rates (0046), инак старата ставка.
+  const rateOf = (m: { id: string; pay_rate?: number }) => videoPriceFor(videoRates, m.id, "", null, m.pay_rate ?? 15);
   // Новите регистрации чакат одобрение; в основната таблица влизат само одобрените.
   const pending = team.filter((m) => m.approved === false);
   const members = team.filter((m) => m.approved !== false);
@@ -152,11 +154,11 @@ export default function TeamPage() {
                       ) : (
                         <input
                           type="number" step="0.01" min="0"
-                          defaultValue={m.pay_rate ?? 15}
-                          key={m.pay_rate ?? "15"}
-                          onBlur={(e) => { const v = parseFloat(e.currentTarget.value); if (!Number.isNaN(v) && v !== (m.pay_rate ?? 15)) setMemberRate(m.id, v); }}
+                          defaultValue={rateOf(m)}
+                          key={rateOf(m)}
+                          onBlur={(e) => { const v = parseFloat(e.currentTarget.value); if (!Number.isNaN(v) && v !== (rateOf(m))) { setMemberRate(m.id, v); setVideoRate(m.id, v); } }}
                           style={{ width: 74, textAlign: "right", padding: "4px 6px", border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-sm)", background: "var(--bm-surface)", color: "var(--bm-text)" }}
-                          title="Дефолтна ставка на видео"
+                          title="Тарифа по подразбиране на видео. Отделните роли и клиенти могат да имат своя цена."
                         />
                       )}
                     </td>

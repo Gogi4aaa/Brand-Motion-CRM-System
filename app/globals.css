@@ -2,6 +2,7 @@
    fonts.css references ./fonts/*.woff2 (resolved & bundled by the build). */
 @import "./design-system/tokens.css";
 @import "./design-system/components.css";
+@import "./design-system/payouts.css";
 
 html,
 body {

@@ -1,0 +1,173 @@
+/* ===========================================================================
+   Екранът Възнаграждения — плътен списък по мокъпа „Възнаграждения по видео“.
+   Структурата е от мокъпа; цветовете минават през токените на дизайн системата,
+   за да работи и в тъмна тема. „Дължимо“ е кехлибарено (warning), „платено“ —
+   зелено (success), защото това са семантики, не декорация.
+   =========================================================================== */
+
+.pay-app {
+  background: var(--bm-surface);
+  border: 1px solid var(--bm-border);
+  border-radius: var(--bm-radius-lg);
+  overflow: hidden;
+}
+
+/* ---- Заглавна лента + месечна навигация -------------------------------- */
+.pay-head {
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--bm-border);
+  display: flex; flex-wrap: wrap; gap: 14px;
+  align-items: flex-start; justify-content: space-between;
+}
+.pay-head h2 { margin: 0 0 2px; font-size: var(--bm-text-xl); font-weight: 600; letter-spacing: -.01em; }
+.pay-head p  { margin: 0; font-size: var(--bm-text-sm); color: var(--bm-text-subtle); }
+
+.pay-monthnav {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--bm-surface-2); border: 1px solid var(--bm-border);
+  border-radius: var(--bm-radius-md); padding: 3px;
+}
+.pay-monthnav button {
+  background: none; border: none; color: var(--bm-text-muted); cursor: pointer;
+  width: 28px; height: 28px; border-radius: var(--bm-radius-sm); font-size: 15px; line-height: 1;
+}
+.pay-monthnav button:hover:not(:disabled) { background: var(--bm-surface); color: var(--bm-text); }
+.pay-monthnav button:disabled { opacity: .35; cursor: default; }
+.pay-monthnav .m { font-size: var(--bm-text-sm); font-weight: 500; padding: 0 10px; white-space: nowrap; }
+.pay-monthnav .today {
+  font-family: var(--bm-font-mono); font-size: 11px; color: var(--bm-text-muted);
+  border-left: 1px solid var(--bm-border); padding: 0 10px; margin-left: 4px;
+  width: auto; height: 28px; border-radius: 0;
+}
+
+/* ---- KPI лента --------------------------------------------------------- */
+.pay-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px; background: var(--bm-border); border-bottom: 1px solid var(--bm-border);
+}
+.pay-kpi { background: var(--bm-surface); padding: 14px 20px; }
+.pay-kpi .k {
+  font-family: var(--bm-font-mono); font-size: 10.5px; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--bm-text-subtle); margin-bottom: 6px;
+}
+.pay-kpi .v {
+  font-size: 23px; font-weight: 600; letter-spacing: -.02em;
+  font-family: var(--bm-font-mono); font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.pay-kpi .s { font-size: 12.5px; color: var(--bm-text-subtle); margin-top: 4px; }
+.pay-kpi.owed .v { color: var(--bm-warning-600); }
+.pay-kpi.paid .v { color: var(--bm-success-600); }
+
+/* ---- Ред на човек ------------------------------------------------------ */
+.pay-rows { padding: 4px 0; }
+.pay-row { border-bottom: 1px solid var(--bm-border); }
+.pay-row:last-child { border-bottom: none; }
+
+.pay-phead {
+  display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  cursor: pointer; background: none; border: none; width: 100%;
+  text-align: left; color: inherit; font: inherit;
+}
+.pay-phead:hover { background: var(--bm-surface-2); }
+.pay-phead:focus-visible { outline: 2px solid var(--bm-primary); outline-offset: -2px; }
+.pay-chev {
+  color: var(--bm-text-subtle); font-size: 11px; width: 12px; flex: none;
+  transition: transform .16s var(--bm-ease);
+}
+.pay-row.is-open .pay-chev { transform: rotate(90deg); }
+
+.pay-who { flex: 1; min-width: 0; }
+.pay-who .n { font-size: var(--bm-text-base); font-weight: 500; line-height: 1.25; display: block; }
+.pay-who .m {
+  font-size: 12.5px; color: var(--bm-text-subtle);
+  display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; align-items: center;
+}
+
+/* Тарифата като чип до името — виждаш я, без да отваряш */
+.pay-chip-rate {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bm-surface-2); border: 1px solid var(--bm-border);
+  border-radius: 99px; padding: 2px 9px;
+  font-family: var(--bm-font-mono); font-size: 11.5px;
+  color: var(--bm-text-muted); white-space: nowrap;
+}
+
+.pay-owed {
+  font-family: var(--bm-font-mono); font-size: 19px; font-weight: 600;
+  font-variant-numeric: tabular-nums; color: var(--bm-warning-600);
+  white-space: nowrap; text-align: right; min-width: 82px;
+}
+.pay-owed.is-zero { color: var(--bm-text-subtle); font-weight: 400; font-size: var(--bm-text-base); }
+
+/* ---- Детайл ------------------------------------------------------------ */
+.pay-detail { padding: 2px 20px 16px; background: var(--bm-surface-2); }
+.pay-dhead {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px 6px; font-family: var(--bm-font-mono); font-size: 10.5px;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--bm-text-subtle);
+}
+
+.pay-vrow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 12px; border-radius: var(--bm-radius-sm);
+}
+.pay-vrow:hover { background: var(--bm-surface); }
+.pay-vrow + .pay-vrow { margin-top: 1px; }
+.pay-vrow.is-muted { opacity: .62; }
+.pay-vrow input.pay-cb { width: 16px; height: 16px; flex: none; accent-color: var(--bm-warning-600); cursor: pointer; }
+.pay-vinfo { flex: 1; min-width: 0; }
+.pay-vt { font-size: var(--bm-text-sm); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pay-vm { font-size: 12px; color: var(--bm-text-subtle); margin-top: 1px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pay-rolechip { background: var(--bm-surface); border: 1px solid var(--bm-border); border-radius: 4px; padding: 0 6px; font-size: 11px; color: var(--bm-text-muted); }
+
+.pay-vprice { display: flex; align-items: center; gap: 3px; font-family: var(--bm-font-mono); font-size: 13.5px; }
+.pay-vprice input {
+  width: 56px; background: var(--bm-surface); border: 1px solid var(--bm-border);
+  border-radius: 5px; color: var(--bm-text); padding: 3px 6px; font: inherit;
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.pay-vprice input:focus { outline: none; border-color: var(--bm-primary); }
+.pay-vprice input:disabled { background: var(--bm-surface-2); color: var(--bm-text-subtle); }
+
+.pay-status {
+  font-size: 11px; font-weight: 500; border-radius: 99px; padding: 2px 9px;
+  white-space: nowrap; min-width: 78px; text-align: center;
+}
+.pay-status--owed    { background: var(--bm-warning-50); color: var(--bm-warning-700); }
+.pay-status--paid    { background: var(--bm-success-50); color: var(--bm-success-700); }
+.pay-status--pending { background: var(--bm-surface); color: var(--bm-text-subtle); border: 1px solid var(--bm-border); }
+
+.pay-dfoot {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end;
+  padding: 14px 12px 4px; margin-top: 8px; border-top: 1px solid var(--bm-border);
+}
+.pay-dfoot .sel { margin-right: auto; font-size: 13px; color: var(--bm-text-subtle); }
+.pay-dfoot .sel b { color: var(--bm-text); font-family: var(--bm-font-mono); }
+
+/* ---- Пакет ------------------------------------------------------------- */
+.pay-pack {
+  background: var(--bm-surface); border: 1px solid var(--bm-border);
+  border-radius: var(--bm-radius-md); padding: 14px 16px; margin: 8px 0 4px;
+}
+.pay-pack-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+.pay-pack-t { font-size: var(--bm-text-sm); font-weight: 500; }
+.pay-pack-t span { color: var(--bm-text-subtle); font-weight: 400; }
+.pay-pack-amt { font-family: var(--bm-font-mono); font-size: var(--bm-text-base); color: var(--bm-text-muted); }
+.pay-bar { height: 6px; border-radius: 99px; background: var(--bm-surface-2); margin: 11px 0 7px; overflow: hidden; }
+.pay-bar i { display: block; height: 100%; background: var(--bm-warning-600); border-radius: 99px; }
+.pay-pack-b { font-size: 12.5px; color: var(--bm-text-subtle); }
+
+/* ---- История на плащанията -------------------------------------------- */
+.pay-hist { margin-top: 10px; border-top: 1px dashed var(--bm-border); padding-top: 10px; }
+.pay-hist-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+  font-size: 13px; color: var(--bm-text-muted);
+}
+.pay-hist-row .amt { font-family: var(--bm-font-mono); font-weight: 600; color: var(--bm-success-600); min-width: 70px; }
+.pay-hist-row.is-void .amt { color: var(--bm-text-subtle); text-decoration: line-through; }
+
+@media (max-width: 640px) {
+  .pay-phead { flex-wrap: wrap; }
+  .pay-owed { min-width: 0; }
+  .pay-detail { padding-left: 10px; padding-right: 10px; }
+}

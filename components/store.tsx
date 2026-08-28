@@ -51,6 +51,12 @@ import {
   type ClientConnection,
   type ChannelProvider,
   type VideoMetric,
+  PAY_ROLES_FALLBACK,
+  type PayRole,
+  type VideoEarning,
+  type WorkerPackage,
+  type Payout,
+  type VideoRate,
 } from "@/lib/data";
 import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, IdeaForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
@@ -77,7 +83,8 @@ async function resizeToSquareDataUrl(file: File, size: number): Promise<string> 
   return dataUrl;
 }
 
-export interface CurrentUser { name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
+// `id` е profile_id (uuid) — по него върви плащането по видео (0046).
+export interface CurrentUser { id: string; name: string; initials: string; role: string; isAdmin: boolean; level: AccessRole }
 export interface ActivityItem { id: string; actor_name: string; actor_initials: string; action: string; created_at: string; audience?: "team" | "admin" }
 export interface NotificationItem { id: string; recipient: string; actor_name: string; actor_initials: string; body: string; link: string; entity_type: string; entity_id: string; read: boolean; created_at: string }
 
@@ -108,7 +115,7 @@ export type Modal =
   | { kind: "confirm"; title: string; message: string; confirmLabel: string; onConfirm: () => void }
   | null;
 
-const DEFAULT_USER: CurrentUser = { name: "Georgi D.", initials: "GD", role: "Администратор", isAdmin: true, level: "admin" };
+const DEFAULT_USER: CurrentUser = { id: "", name: "Georgi D.", initials: "GD", role: "Администратор", isAdmin: true, level: "admin" };
 
 // Кратък двутонов сигнал при ново известие (камбанката). Web Audio — без
 // аудио файл; браузърът може да го заглуши, ако страницата няма нито едно
@@ -141,6 +148,12 @@ interface Store {
   clients: Client[];
   invoices: Invoice[];
   tasks: Task[];
+  // ---- Плащане по видео (0046) ----
+  payRoles: PayRole[];
+  videoEarnings: VideoEarning[];
+  workerPackages: WorkerPackage[];
+  payouts: Payout[];
+  videoRates: VideoRate[];
   activity: ActivityItem[];
   notifications: NotificationItem[];
   team: TeamMember[];
@@ -246,6 +259,13 @@ interface Store {
   markWorkerPaid: (initials: string) => void;
   setTaskPay: (taskId: string, amount: number) => void;
   setMemberRate: (profileId: string, rate: number) => void;
+  // ---- Плащане по видео (0046) ----
+  setVideoPrice: (earningId: number, price: number) => void;
+  setVideoRate: (profileId: string, price: number, roleKey?: string | null, clientId?: string | null) => void;
+  payVideos: (profileId: string, earningIds: number[], packageIds: number[], method?: string, reference?: string) => void;
+  payAllFor: (profileId: string, method?: string, reference?: string) => void;
+  undoPayout: (payoutId: string) => void;
+  createPackage: (profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null) => void;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -263,6 +283,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [clients, setClients] = useState<Client[]>(seedClients);
   const [invoices, setInvoices] = useState<Invoice[]>(seedInvoices);
   const [tasks, setTasks] = useState<Task[]>(seedTasks);
+  const [payRoles, setPayRoles] = useState<PayRole[]>(PAY_ROLES_FALLBACK);
+  const [videoEarnings, setVideoEarnings] = useState<VideoEarning[]>([]);
+  const [workerPackages, setWorkerPackages] = useState<WorkerPackage[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [videoRates, setVideoRates] = useState<VideoRate[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [team, setTeam] = useState<TeamMember[]>(seedTeam);
@@ -321,6 +346,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("task_pay").select("*"),      // RLS: админ вижда всички, работник — само своите
           sb.from("worker_rates").select("*"),  // RLS: админ + себе си
         ]);
+        // Плащане по видео (0046). Ако миграцията още не е пусната, таблиците
+        // липсват — тогава просто остават празни и екранът пада обратно към
+        // старите task_pay суми, без да чупи останалото зареждане.
+        const [pr, ve, wp, po, vr] = await Promise.all([
+          sb.from("pay_roles").select("*").order("sort"),
+          sb.from("video_earnings").select("*"),      // RLS: админ всички, работник — своите
+          sb.from("worker_packages").select("*"),
+          sb.from("payouts").select("*").order("paid_at", { ascending: false }),
+          sb.from("video_rates").select("*").order("valid_from", { ascending: false }),
+        ]);
+        if (!cancelled) {
+          if (pr.data && pr.data.length) setPayRoles(pr.data as PayRole[]);
+          if (ve.data) setVideoEarnings(ve.data as VideoEarning[]);
+          if (wp.data) setWorkerPackages(wp.data as WorkerPackage[]);
+          if (po.data) setPayouts(po.data as Payout[]);
+          if (vr.data) setVideoRates(vr.data as VideoRate[]);
+        }
+
         // Липсваща таблица (миграция 0029 още не е пусната) просто оставя
         // празни бранд профили — грешката не пипа останалите данни.
         const bp = await sb.from("brand_profiles").select("*");
@@ -359,6 +402,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (me && !cancelled) {
             const lvl: AccessRole = me.role === "admin" ? "admin" : me.role === "manager" ? "manager" : "worker";
             setCurrentUser({
+              id: uid,
               name: me.name || auth.data.user?.email || "User",
               initials: (me.initials || "U").toUpperCase(),
               role: ROLE_LABELS[lvl],
@@ -488,6 +532,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (payload.eventType === "DELETE") return;
         mergePay(payload.new as { task_id: string; amount: number; paid: boolean; paid_at: string | null });
       })
+      .subscribe();
+    return () => { client.removeChannel(ch); };
+  }, [rtToken]);
+
+  // Live пари по видео (0046): тригерът начислява при движение на задачите,
+  // админът коригира сумите — всичко се вижда веднага и от двете страни. RLS
+  // пуска на работника само неговите редове.
+  useEffect(() => {
+    if (!supabaseConfigured || !rtToken) return;
+    const client = createClient();
+    client.realtime.setAuth(rtToken);
+    const upsert = <T extends { id: number | string }>(set: React.Dispatch<React.SetStateAction<T[]>>) =>
+      (payload: { eventType: string; new: unknown; old: unknown }) => {
+        if (payload.eventType === "DELETE") {
+          const oldId = (payload.old as { id?: number | string } | null)?.id;
+          if (oldId !== undefined) set((list) => list.filter((r) => r.id !== oldId));
+          return;
+        }
+        const row = payload.new as T;
+        set((list) => (list.some((r) => r.id === row.id) ? list.map((r) => (r.id === row.id ? row : r)) : [...list, row]));
+      };
+    const ch = client
+      .channel("video-pay-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "video_earnings" }, upsert(setVideoEarnings))
+      .on("postgres_changes", { event: "*", schema: "public", table: "worker_packages" }, upsert(setWorkerPackages))
+      .on("postgres_changes", { event: "*", schema: "public", table: "payouts" }, upsert(setPayouts))
       .subscribe();
     return () => { client.removeChannel(ch); };
   }, [rtToken]);
@@ -1387,11 +1457,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb()?.from("content_items").update({ date }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] scheduleContent failed:", error));
   }, []);
 
+  // Изтриването на видео маха и стъпка-задачите му. Без това те оставаха като
+  // призраци по бордовете (tasks.content_item_id няма foreign key) и продължаваха
+  // да начисляват пари за видео, което вече не съществува.
   const deleteContentItem = useCallback((id: string) => {
     setContentItems((list) => list.filter((c) => c.id !== id));
+    setTasks((list) => list.filter((t) => t.content_item_id !== id));
+    sb()?.from("tasks").delete().eq("content_item_id", id).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] deleteContentItem tasks failed:", error); notifyError("Задачите на видеото не се изтриха: " + error.message); }
+    });
     sb()?.from("content_items").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteContentItem failed:", error));
     setModal(null);
-  }, []);
+  }, [notifyError]);
 
   const signOut = useCallback(async () => {
     if (supabaseConfigured) { try { await createClient().auth.signOut(); } catch (e) { console.error(e); } }
@@ -1575,6 +1652,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (next.status === "done") completeStageFor(cur);
   }, [tasks, completeStageFor, notifyError]);
 
+  // ⚠️ НАСЛЕДЕНО (до 0046). Плащането вече минава през `payVideos`/`payAllFor`
+  // и таблицата payouts. Тези две остават само заради стари task_pay данни.
   // Settle a worker's dues: mark every DONE unpaid task of theirs as paid and
   // tell them. The per-task paid flag keeps history (what was paid when).
   const markWorkerPaid = useCallback((initials: string) => {
@@ -1615,8 +1694,90 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [notifyError]);
 
+  // ==========================================================================
+  // ПЛАЩАНЕ ПО ВИДЕО (0046)
+  // Сметките живеят в базата (тригер + RPC), защото са пари: клиентът само
+  // праща намерение и препрочита резултата. Локалният ъпдейт е оптимистичен —
+  // realtime каналът така или иначе донася истината след миг.
+  // ==========================================================================
+
+  // Ръчна сума на конкретно видео. Заключва се — тарифата вече не я пипа.
+  const setVideoPrice = useCallback((earningId: number, price: number) => {
+    const p = Math.round((price || 0) * 100) / 100;
+    setVideoEarnings((list) => list.map((e) => (e.id === earningId ? { ...e, price: p, price_locked: true } : e)));
+    sb()?.rpc("bm_set_video_price", { p_earning: earningId, p_price: p }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] setVideoPrice failed:", error); notifyError("Сумата не се запази: " + error.message); }
+    });
+  }, [notifyError]);
+
+  // Смяна на тарифа = НОВ ред в video_rates. Вече заработените си пазят цената.
+  const setVideoRate = useCallback((profileId: string, price: number, roleKey?: string | null, clientId?: string | null) => {
+    const p = Math.round((price || 0) * 100) / 100;
+    sb()?.rpc("bm_set_rate", { p_profile: profileId, p_price: p, p_role: roleKey ?? null, p_client: clientId ?? null })
+      .then(({ error }) => {
+        if (error) { console.error("[BrandMotion] setVideoRate failed:", error); notifyError("Тарифата не се запази: " + error.message); return; }
+        setVideoEarnings((list) => list.map((e) =>
+          e.profile_id === profileId && !e.payout_id && !e.price_locked
+            && (!roleKey || e.role_key === roleKey) && (!clientId || e.client_id === clientId)
+            ? { ...e, price: p } : e));
+      });
+    logActivity(`смени тарифа на €${p}`, "admin");
+  }, [notifyError, logActivity]);
+
+  // Плащане на ИЗБРАНИ видеа и/или пакети → един ред в payouts.
+  const payVideos = useCallback((profileId: string, earningIds: number[], packageIds: number[], method?: string, reference?: string) => {
+    const person = team.find((m) => m.id === profileId);
+    const total = videoEarnings.filter((e) => earningIds.includes(e.id)).reduce((a, e) => a + (e.price || 0), 0)
+      + workerPackages.filter((w) => packageIds.includes(w.id)).reduce((a, w) => a + (w.total_price || 0), 0);
+    if (total <= 0) return;
+    sb()?.rpc("bm_pay_videos", {
+      p_profile: profileId, p_earnings: earningIds, p_packages: packageIds,
+      p_method: method ?? null, p_reference: reference ?? null, p_note: null,
+    }).then(({ data, error }) => {
+      if (error) { console.error("[BrandMotion] payVideos failed:", error); notifyError("Плащането не се запази: " + error.message); return; }
+      const payoutId = data as unknown as string;
+      setVideoEarnings((list) => list.map((e) => (earningIds.includes(e.id) ? { ...e, payout_id: payoutId } : e)));
+      setWorkerPackages((list) => list.map((w) => (packageIds.includes(w.id) ? { ...w, payout_id: payoutId, status: "paid" as const } : w)));
+      setPayouts((list) => [{ id: payoutId, profile_id: profileId, amount: total, method: method ?? null, reference: reference ?? null, paid_at: new Date().toISOString() }, ...list]);
+      if (person) {
+        notify(person.initials, `Плащане към теб: €${total.toLocaleString("bg-BG")} за ${earningIds.length + packageIds.length} позиции`, { entity_type: "pay", entity_id: person.initials });
+        logActivity(`плати €${total.toLocaleString("bg-BG")} на ${person.name}`, "admin");
+      }
+    });
+  }, [team, videoEarnings, workerPackages, notify, notifyError, logActivity]);
+
+  // Всичко дължимо на един човек наведнъж.
+  const payAllFor = useCallback((profileId: string, method?: string, reference?: string) => {
+    const ids = videoEarnings.filter((e) => e.profile_id === profileId && e.earned_at && !e.payout_id && !e.package_id).map((e) => e.id);
+    const pkgs = workerPackages.filter((w) => w.profile_id === profileId && w.status === "completed" && !w.payout_id).map((w) => w.id);
+    if (!ids.length && !pkgs.length) return;
+    payVideos(profileId, ids, pkgs, method, reference);
+  }, [videoEarnings, workerPackages, payVideos]);
+
+  // Отмяна: плащането остава в историята като voided, сумите се връщат в дължимо.
+  const undoPayout = useCallback((payoutId: string) => {
+    sb()?.rpc("bm_undo_payout", { p_payout: payoutId }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] undoPayout failed:", error); notifyError("Отмяната не се запази: " + error.message); return; }
+      setVideoEarnings((list) => list.map((e) => (e.payout_id === payoutId ? { ...e, payout_id: null } : e)));
+      setWorkerPackages((list) => list.map((w) => (w.payout_id === payoutId ? { ...w, payout_id: null, status: "completed" as const } : w)));
+      setPayouts((list) => list.map((p) => (p.id === payoutId ? { ...p, voided_at: new Date().toISOString() } : p)));
+      logActivity("отмени плащане", "admin");
+    });
+  }, [notifyError, logActivity]);
+
+  // Пакет: N видеа за X€ — поема наличните незаплатени начисления на човека.
+  const createPackage = useCallback((profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null) => {
+    sb()?.rpc("bm_create_package", {
+      p_profile: profileId, p_target: target, p_total: Math.round((total || 0) * 100) / 100,
+      p_label: label ?? "", p_role: roleKey ?? null, p_client: clientId ?? null,
+    }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] createPackage failed:", error); notifyError("Пакетът не се запази: " + error.message); return; }
+      logActivity(`създаде пакет ${target} видеа за €${total}`, "admin");
+    });
+  }, [notifyError, logActivity]);
+
   const value: Store = {
-    clients, invoices, tasks, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
+    clients, invoices, tasks, payRoles, videoEarnings, workerPackages, payouts, videoRates, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
     addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval, requestBatchApproval, dismissSuggestion,
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
     toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
@@ -1628,6 +1789,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addClient, updateClient, deleteClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,
     addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid, setTaskPay, setMemberRate,
+    setVideoPrice, setVideoRate, payVideos, payAllFor, undoPayout, createPackage,
   };
 
   return (

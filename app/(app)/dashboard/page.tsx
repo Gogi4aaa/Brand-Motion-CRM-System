@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
-import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, payoutFor, inCurrentMonth, parseDay } from "@/lib/data";
+import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, owedFor, inCurrentMonth, parseDay } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
 
 type Period = "today" | "week" | "month";
@@ -52,7 +52,9 @@ function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.Re
 }
 
 export default function DashboardPage() {
-  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead, visibleClients } = useStore();
+  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead, visibleClients, videoEarnings, workerPackages, payouts } = useStore();
+  // Дължимото на текущия човек идва от плащането по видео (0046).
+  const myOwed = owedFor(videoEarnings, workerPackages, payouts, currentUser.id);
   // Мениджърските числа се смятат само по клиентите, до които има достъп.
   const visibleIds = new Set(visibleClients.map((c) => c.id));
   const scopedItems = contentItems.filter((c) => visibleIds.has(c.client));
@@ -134,7 +136,7 @@ export default function DashboardPage() {
             <Kpi label="Моите отворени задачи" value={myOpen} deltaCls="bm-text-subtle" delta="за вършене" />
             <Kpi label="Завършени от мен" value={myDone} deltaCls="bm-stat__delta--up" delta="готови" />
             <Kpi label="Видеа при мен" value={myVideos} deltaCls="bm-text-subtle" delta="в продукция" />
-            <Kpi label="За получаване" value={<Money>{fmtFull(payoutFor(tasks, currentUser.initials).owed)}</Money>} deltaCls="bm-stat__delta--up" delta="от завършени задачи" />
+            <Kpi label="За получаване" value={<Money>{fmtFull(myOwed.owed)}</Money>} deltaCls="bm-stat__delta--up" delta={`от ${myOwed.owedVideos} завършени видеа`} />
           </>
         )}
       </section>

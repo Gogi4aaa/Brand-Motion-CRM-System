@@ -111,6 +111,8 @@ export function visibleClientsFor(level: AccessRole, clientIds: string[] | undef
   return clients.filter((c) => ids.includes(c.id));
 }
 
+// ⚠️ НАСЛЕДЕНО (до 0046) — плащането вече е по видео, не по задача. Оставено
+// само за четене на стари task_pay данни; новото е `owedFor`. Не го използвай.
 // Per-worker payout summary derived from tasks:
 //   owed      — done, not yet paid (this is what the admin owes right now)
 //   upcoming  — agreed pay on tasks still in progress
@@ -125,6 +127,179 @@ export function payoutFor(tasks: Task[], initials: string) {
     paidTotal: sum(mine.filter((t) => t.paid)),
   };
 }
+
+// ============================================================================
+// ПЛАЩАНЕ ПО ВИДЕО (0046) — единицата е (видео × човек × роля), не етап.
+// Няколко етапа се свиват в една платена роля през `stage_roles`, затова един
+// монтажист, който прави и монтажа, и прегледа, взима ЕДНА сума за видеото.
+// ============================================================================
+
+export interface PayRole { key: string; label: string; sort: number }
+
+// Резервни роли за демо режим (без Supabase) — огледало на `pay_roles` в 0046.
+export const PAY_ROLES_FALLBACK: PayRole[] = [
+  { key: "strategist", label: "Стратег", sort: 1 },
+  { key: "scriptwriter", label: "Сценарист", sort: 2 },
+  { key: "videographer", label: "Видеограф", sort: 3 },
+  { key: "editor", label: "Монтажист", sort: 4 },
+  { key: "poster", label: "Пост криейтър", sort: 5 },
+  { key: "publisher", label: "Публикуващ", sort: 6 },
+];
+
+// Карта етап → платена роля (огледало на `stage_roles`). Етап, който не е тук,
+// не струва пари. `review` е нарочно при `editor`: прегледът е част от монтажа.
+export const STAGE_PAY_ROLE: Record<string, string> = {
+  strategy: "strategist",
+  script: "scriptwriter",
+  shoot: "videographer",
+  edit: "editor",
+  review: "editor",
+  publish: "publisher",
+  copy: "poster",
+  design: "poster",
+};
+
+export const payRoleLabel = (roles: PayRole[], key: string) =>
+  roles.find((r) => r.key === key)?.label || PAY_ROLES_FALLBACK.find((r) => r.key === key)?.label || key;
+
+// Един ред на (видео × човек × роля). `earned_at` != null означава ДЪЛЖИМО.
+export interface VideoEarning {
+  id: number;
+  content_item_id: string | null;   // null = видеото е изтрито, но парите се дължат
+  content_title: string;            // снимка на заглавието — оцелява изтриването
+  legacy_item_id?: string | null;   // старият id на изтрито видео (пренос 0046)
+  profile_id: string;
+  role_key: string;
+  client_id?: string | null;
+  price: number;
+  price_locked: boolean;      // ръчна сума — тарифата вече не я пипа
+  earned_at?: string | null;  // когато си свърши НЕГОВАТА част
+  package_id?: number | null; // част от пакет → не е поотделно дължимо
+  payout_id?: string | null;  // платено
+  created_at?: string;
+}
+
+// N видеа за X€. Плаща се НАВЕДНЪЖ при завършване; видеата вътре само
+// придвижват прогреса и никога не стават поотделно дължими.
+export type PackageStatus = "open" | "completed" | "paid" | "cancelled";
+export interface WorkerPackage {
+  id: number;
+  profile_id: string;
+  label: string;
+  target_count: number;
+  total_price: number;
+  role_key?: string | null;
+  client_id?: string | null;
+  status: PackageStatus;
+  completed_at?: string | null;
+  payout_id?: string | null;
+  created_at?: string;
+}
+
+// Плащане с дата, метод и референция. Отменяемо (`voided_at`), не се трие.
+export interface Payout {
+  id: string;
+  profile_id: string;
+  amount: number;
+  method?: string | null;
+  reference?: string | null;
+  note?: string | null;
+  paid_at: string;
+  voided_at?: string | null;
+}
+
+export interface VideoRate {
+  id: number;
+  profile_id: string;
+  role_key?: string | null;
+  client_id?: string | null;
+  price: number;
+  valid_from: string;
+}
+
+export const PAY_METHODS: { id: string; label: string }[] = [
+  { id: "bank", label: "Банка" },
+  { id: "cash", label: "В брой" },
+  { id: "revolut", label: "Revolut" },
+  { id: "wise", label: "Wise" },
+  { id: "other", label: "Друго" },
+];
+
+// ---- Месечна навигация (‹ Август 2026 ›) ----------------------------------
+export const shiftMonthKey = (key: string, delta: number) => {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+// `null` месец = „цял период“ (без филтър).
+export const inMonthKey = (iso: string | null | undefined, key: string | null) => {
+  if (!key) return true;
+  const t = parseDay(iso);
+  if (Number.isNaN(t)) return false;
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` === key;
+};
+
+// ---- Дължимо на един човек -------------------------------------------------
+// Огледало на `v_worker_owed` от 0046, за да работи и демо режимът без Supabase.
+//   owed      — завършени неплатени ОТДЕЛНИ видеа + завършени неплатени пакети
+//   upcoming  — започнати, но още незавършени отделни видеа
+//   paidTotal — сумата на неотменените плащания
+export function owedFor(
+  earnings: VideoEarning[],
+  packages: WorkerPackage[],
+  payouts: Payout[],
+  profileId: string
+) {
+  const mine = earnings.filter((e) => e.profile_id === profileId && !e.package_id);
+  const open = mine.filter((e) => !e.payout_id);
+  const owedVideos = open.filter((e) => e.earned_at);
+  const packs = packages.filter(
+    (p) => p.profile_id === profileId && p.status === "completed" && !p.payout_id
+  );
+  const sum = (list: { price: number }[]) => list.reduce((a, e) => a + (e.price || 0), 0);
+  return {
+    owed: sum(owedVideos) + packs.reduce((a, p) => a + (p.total_price || 0), 0),
+    owedVideos: owedVideos.length,
+    owedPackages: packs,
+    upcoming: sum(open.filter((e) => !e.earned_at)),
+    paidTotal: payouts
+      .filter((p) => p.profile_id === profileId && !p.voided_at)
+      .reduce((a, p) => a + (p.amount || 0), 0),
+  };
+}
+
+// Текущата тарифа на човек за роля (+ по избор клиент) — огледало на
+// `bm_video_price` от 0046, за да се покаже чипът, без да се пита базата.
+// Приоритет на съвпадението: клиент(4) + роля(2); при равенство — по-новият ред.
+export function videoPriceFor(
+  rates: VideoRate[],
+  profileId: string,
+  roleKey: string,
+  clientId?: string | null,
+  fallbackRate?: number
+): number {
+  const score = (r: VideoRate) => (r.client_id ? 4 : 0) + (r.role_key ? 2 : 0);
+  const match = rates
+    .filter((r) => r.profile_id === profileId
+      && (!r.role_key || r.role_key === roleKey)
+      && (!r.client_id || r.client_id === clientId))
+    .sort((a, b) => score(b) - score(a) || (b.valid_from || "").localeCompare(a.valid_from || "") || b.id - a.id)[0];
+  return match ? match.price : fallbackRate ?? 15;
+}
+
+// Колко е свършил пакетът (за прогрес бара).
+export const packageProgress = (earnings: VideoEarning[], pkg: WorkerPackage) => {
+  const inPkg = earnings.filter((e) => e.package_id === pkg.id);
+  return { done: inPkg.filter((e) => e.earned_at).length, total: pkg.target_count };
+};
+
+// Реално изплатено на екипа за период — по датата на ПЛАЩАНЕ (payouts), а не по
+// задачите. Заменя workerPaidCost за новия модел.
+export const payoutCost = (payouts: Payout[], monthKeyOrNull: string | null) =>
+  payouts
+    .filter((p) => !p.voided_at && inMonthKey(p.paid_at, monthKeyOrNull))
+    .reduce((a, p) => a + (p.amount || 0), 0);
 
 // Weekly capacity per person (hours) — over this is flagged as overloaded.
 export const WEEKLY_CAPACITY_HOURS = 40;
@@ -349,6 +524,8 @@ export const collectedRevenue = (invoices: Invoice[], onlyMonth = false) =>
   invoices.filter((i) => i.status === "paid" && (!onlyMonth || inCurrentMonth(i.paid_at)))
     .reduce((a, i) => a + (i.amount || 0), 0);
 
+// ⚠️ НАСЛЕДЕНО (до 0046) — замени го с `payoutCost(payouts, …)`, което кара по
+// реалните преводи. Оставено само за стари данни.
 // Изплатено на работници = сумата на pay_amount за ПЛАТЕНИТЕ задачи (месец = по paid_at).
 export const workerPaidCost = (tasks: Task[], onlyMonth = false) =>
   tasks.filter((t) => t.paid && (!onlyMonth || inCurrentMonth(t.paid_at)))

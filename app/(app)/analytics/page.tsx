@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useStore } from "@/components/store";
 import {
-  fmtFull, PIPELINE_STAGES, collectedRevenue, workerPaidCost, clientLtv,
+  fmtFull, PIPELINE_STAGES, collectedRevenue, payoutCost, monthKey, clientLtv,
   clientTenureDays, fmtTenure, revenueByMonth, clientStatusMeta, clientsById,
 } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
@@ -19,13 +19,15 @@ function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.Re
 }
 
 export default function AnalyticsPage() {
-  const { clients, invoices, leads, tasks } = useStore();
+  const { clients, invoices, leads, payouts } = useStore();
 
-  // ---- Приход и чиста печалба (реално събрано − изплатено на работници) ----
+  // ---- Приход и чиста печалба (реално събрано − реално изплатено) ----
+  // Разходът за екипа идва от payouts (0046) — истинските преводи с дата, а не
+  // от флаг върху задачите. Отменените плащания не се броят.
   const revMonth = collectedRevenue(invoices, true);
   const revAll = collectedRevenue(invoices);
-  const paidMonth = workerPaidCost(tasks, true);
-  const paidAll = workerPaidCost(tasks);
+  const paidMonth = payoutCost(payouts, monthKey());
+  const paidAll = payoutCost(payouts, null);
   const netMonth = revMonth - paidMonth;
   const netAll = revAll - paidAll;
 

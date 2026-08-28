@@ -4,11 +4,24 @@ import { useState } from "react";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
-import { clientsById, prioMeta, TASK_COLUMNS, fmtFull, payoutFor, canSeeTask, isArchived, BOARD_RETENTION_DAYS, WEEKLY_CAPACITY_HOURS, type TaskStatus } from "@/lib/data";
+import { clientsById, prioMeta, TASK_COLUMNS, fmtFull, owedFor, payRoleLabel, STAGE_PAY_ROLE, canSeeTask, isArchived, BOARD_RETENTION_DAYS, WEEKLY_CAPACITY_HOURS, type TaskStatus } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
 
 export default function TasksPage() {
-  const { clients, tasks, team, moveTask, openModal, currentUser, markWorkerPaid, visibleClients } = useStore();
+  const { clients, tasks, team, moveTask, openModal, currentUser, visibleClients,
+    videoEarnings, workerPackages, payouts, payRoles, payAllFor } = useStore();
+  // Възнагражденията идват от плащането по видео (0046) — не от задачите.
+  const owedByProfile = (profileId: string) => owedFor(videoEarnings, workerPackages, payouts, profileId);
+  // Сумата, която стои на картичката на задачата: цената на (видео × роля) на
+  // нейния изпълнител. Няколко етапа делят един ред, затова сумата се показва
+  // веднъж — на всяка от задачите, които я изкарват.
+  const earningForTask = (t: { content_item_id?: string | null; stage_key?: string | null; assignee: string }) => {
+    if (!t.content_item_id || !t.stage_key) return null;
+    const role = STAGE_PAY_ROLE[t.stage_key];
+    const profile = team.find((m) => m.initials === t.assignee)?.id;
+    if (!role || !profile) return null;
+    return videoEarnings.find((e) => e.content_item_id === t.content_item_id && e.profile_id === profile && e.role_key === role) || null;
+  };
   const [filter, setFilter] = useState("all");
   // Филтър по изпълнител — за админ/мениджър, за да гледат борда на един човек
   // наведнъж вместо всички задачи накуп. Работникът и без това вижда само своите.
@@ -73,7 +86,7 @@ export default function TasksPage() {
       </div>
 
       {currentUser.level === "worker" && (() => {
-        const p = payoutFor(tasks, currentUser.initials);
+        const p = owedByProfile(currentUser.id);
         return (
           <div className="bm-card">
             <div className="bm-card__header"><h3>Моето възнаграждение</h3></div>
@@ -81,12 +94,12 @@ export default function TasksPage() {
               <div>
                 <div className="bm-label">За получаване</div>
                 <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700 }}><Money>{fmtFull(p.owed)}</Money></div>
-                <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{p.owedCount} завършени задачи</div>
+                <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{p.owedVideos} завършени видеа</div>
               </div>
               <div>
                 <div className="bm-label">Предстоящо</div>
                 <div style={{ fontSize: "var(--bm-text-xl)", fontWeight: 700 }}><Money>{fmtFull(p.upcoming)}</Money></div>
-                <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>по задачи в процес</div>
+                <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>по видеа в процес</div>
               </div>
               <div>
                 <div className="bm-label">Платено досега</div>
@@ -99,10 +112,10 @@ export default function TasksPage() {
 
       {currentUser.isAdmin && (
         <div className="bm-card">
-          <div className="bm-card__header"><h3>Възнаграждения към екипа</h3><span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>дължимо = завършени, неплатени задачи</span></div>
+          <div className="bm-card__header"><h3>Възнаграждения към екипа</h3><span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>дължимо = завършени, неплатени видеа</span></div>
           <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
             {team.filter((m) => m.initials !== currentUser.initials).map((m) => {
-              const p = payoutFor(tasks, m.initials);
+              const p = owedByProfile(m.id);
               if (p.owed === 0 && p.upcoming === 0 && p.paidTotal === 0) return null;
               return (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", borderBottom: "1px solid var(--bm-border)", paddingBottom: "var(--bm-space-3)" }}>
@@ -113,13 +126,13 @@ export default function TasksPage() {
                   <span style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>предстоящо <Money>{fmtFull(p.upcoming)}</Money> · платено <Money>{fmtFull(p.paidTotal)}</Money></span>
                     <span style={{ fontWeight: 700 }}><Money>{fmtFull(p.owed)}</Money></span>
-                    <button className="bm-btn bm-btn--secondary bm-btn--sm" disabled={p.owed === 0} onClick={() => markWorkerPaid(m.initials)} title="Маркира завършените неплатени задачи като платени">Платено</button>
+                    <button className="bm-btn bm-btn--secondary bm-btn--sm" disabled={p.owed === 0} onClick={() => payAllFor(m.id)} title="Плаща всичко дължимо; за избор на отделни видеа виж Възнаграждения">Платено</button>
                   </span>
                 </div>
               );
             })}
-            {team.every((m) => { const p = payoutFor(tasks, m.initials); return m.initials === currentUser.initials || (p.owed === 0 && p.upcoming === 0 && p.paidTotal === 0); }) && (
-              <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма зададени възнаграждения. Отвори задача и попълни полето „Възнаграждение за изпълнителя“.</p>
+            {team.every((m) => { const p = owedByProfile(m.id); return m.initials === currentUser.initials || (p.owed === 0 && p.upcoming === 0 && p.paidTotal === 0); }) && (
+              <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Няма начислени възнаграждения. Те се появяват сами, щом видео тръгне по продукцията.</p>
             )}
           </div>
         </div>
@@ -190,9 +203,17 @@ export default function TasksPage() {
                       <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{byId[t.client]?.name}</span>
                         {t.visibility === "private" ? <span style={{ flexShrink: 0 }} title="Лична задача — виждат я само изпълнителят и админът">🔒</span> : null}
-                        {(currentUser.isAdmin || t.assignee === currentUser.initials) && (t.pay_amount || 0) > 0 ? (
-                          <span style={{ flexShrink: 0, fontWeight: 600, color: t.paid ? "var(--bm-success-600)" : "var(--bm-text-muted)" }}>· <Money>{fmtFull(t.pay_amount || 0)}</Money>{t.paid ? " ✓" : ""}</span>
-                        ) : null}
+                        {(() => {
+                          if (!currentUser.isAdmin && t.assignee !== currentUser.initials) return null;
+                          const e = earningForTask(t);
+                          if (!e || !e.price) return null;
+                          return (
+                            <span style={{ flexShrink: 0, fontWeight: 600, color: e.payout_id ? "var(--bm-success-600)" : "var(--bm-text-muted)" }}
+                              title={`${payRoleLabel(payRoles, e.role_key)} — сумата е за цялото видео, не за тази стъпка`}>
+                              · <Money>{fmtFull(e.price)}</Money>{e.payout_id ? " ✓" : ""}
+                            </span>
+                          );
+                        })()}
                       </span>
                       <Avatar initials={t.assignee} style={{ width: 24, height: 24, fontSize: 10 }} />
                     </div>
