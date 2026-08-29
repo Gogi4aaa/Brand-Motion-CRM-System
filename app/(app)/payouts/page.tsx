@@ -9,8 +9,9 @@
 // от v_worker_owed. Фронтендът само подрежда — и показва равносметка под всеки
 // човек, за да се вижда от какво е съставено голямото число.
 //
-// Сроковете не са отделен екран, а филтър. „Горят“ е екранът Срокове, „Чакат теб“
-// е входящата кутия, „Пакети“ е прегледът на договорките.
+// Сроковете не са отделен екран, а филтър. ВАЖНО: те са срокове за КАЧВАНЕ на
+// видеото и решават само премията — не са падеж на плащане. Плащането се
+// затваря веднъж месечно през „Месечна сметка“.
 
 import { useMemo, useState } from "react";
 import { useStore } from "@/components/store";
@@ -22,6 +23,7 @@ import {
 import { Money } from "@/components/MoneyLock";
 import { Avatar } from "@/components/Avatar";
 import { WorkerPayView } from "@/components/WorkerPayView";
+import { MonthSettlement } from "@/components/MonthSettlement";
 
 const money = (n: number) => fmtFull(n);
 const shortDay = (iso?: string | null) => {
@@ -35,8 +37,8 @@ type RowState = "paid" | "review" | "owed" | "ontime" | "late" | "due" | "open";
 
 const HINTS: Record<FilterKey, string> = {
   all: "Кой е на каква цена, за кои видеа, докъде е и какво чака от теб.",
-  owed: "Само хората, на които дължиш пари в момента.",
-  burn: "Изтичащи и просрочени срокове — това е екранът „Срокове“, само тук.",
+  owed: "Натрупано за плащане. Плаща се веднъж месечно — виж „Месечна сметка“.",
+  burn: "Срокове за КАЧВАНЕ на видеото, не за плащане. От тях зависи само премията.",
   review: "Подадени видеа, на които часовникът е спрял. Докато ги гледаш, човекът не губи премия.",
   pkg: "Хората с пакетна договорка и докъде е стигнал всеки пакет.",
 };
@@ -103,7 +105,7 @@ function AdminPayouts() {
     team, currentUser, payRoles, videoEarnings, packageProgress, workerOwed,
     payouts, videoRates, invoices,
     setVideoPrice, payVideos, payAllFor, undoPayout,
-    acceptVideo, returnVideo, grantBonus, createPackage, addToPackage, removeFromPackage,
+    acceptVideo, returnVideo, grantBonus, createPackage, addToPackage, removeFromPackage, loadSettlement,
     clients: clientList,
   } = useStore();
 
@@ -116,6 +118,10 @@ function AdminPayouts() {
   const [histFor, setHistFor] = useState<Set<string>>(new Set());
   const [newPkgFor, setNewPkgFor] = useState<string | null>(null);
   const [addToPkg, setAddToPkg] = useState<{ pkgId: number; profileId: string } | null>(null);
+  const [showSettlement, setShowSettlement] = useState(false);
+  // Плащане, дошло от месечната сметка — носи готовите id-та, без да ги смята пак.
+  const [settlePay, setSettlePay] = useState<
+    { profileId: string; name: string; ids: number[]; pkgs: number[]; sum: number } | null>(null);
   const isAdmin = true;
   const rows = useMemo(() => {
     return team
@@ -203,6 +209,9 @@ function AdminPayouts() {
               {month ? "Всичко" : "Днес"}
             </button>
           </div>
+          <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => setShowSettlement(true)}>
+            Месечна сметка
+          </button>
           <button className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => setNewPkgFor("")}>
             + Пакет
           </button>
@@ -213,7 +222,7 @@ function AdminPayouts() {
         <div className="pay-chips">
           {([
             ["all", "Всички", ""], ["owed", "Дължимо", "g"],
-            ["burn", "⏱ Горят", "w"], ["review", "↩ Чакат теб", "b"], ["pkg", "Пакети", ""],
+            ["burn", "⏱ Закъснели за качване", "w"], ["review", "↩ Чакат теб", "b"], ["pkg", "Пакети", ""],
           ] as const).map(([k, label, cls]) => (
             <button key={k} type="button" className={"pay-chip " + cls} aria-pressed={filter === k}
               onClick={() => setFilter(k)}>
@@ -287,12 +296,12 @@ function AdminPayouts() {
                       )}
                       {r.mine.filter((e) => !e.accepted_at && e.timeline === "просрочено").length > 0 && (
                         <span className="pay-flag pay-flag--bad">
-                          ✕ {r.mine.filter((e) => !e.accepted_at && e.timeline === "просрочено").length} просрочено
+                          ✕ {r.mine.filter((e) => !e.accepted_at && e.timeline === "просрочено").length} закъснели за качване
                         </span>
                       )}
                       {r.mine.filter((e) => !e.accepted_at && e.timeline === "изтича").length > 0 && (
                         <span className="pay-flag pay-flag--warn">
-                          ⏱ {r.mine.filter((e) => !e.accepted_at && e.timeline === "изтича").length} изтича
+                          ⏱ {r.mine.filter((e) => !e.accepted_at && e.timeline === "изтича").length} за качване скоро
                         </span>
                       )}
                       {r.review > 0 && <span className="pay-flag pay-flag--rev">↩ {r.review} чака теб</span>}
@@ -424,6 +433,28 @@ function AdminPayouts() {
 
       <ProfitStrip month={month} invoices={invoices} payouts={payouts} />
 
+      {showSettlement && (
+        <MonthSettlement
+          month={month}
+          load={loadSettlement}
+          onClose={() => setShowSettlement(false)}
+          onPay={(profileId, ids, pkgs, sum) => {
+            const who = team.find((m) => m.id === profileId);
+            setSettlePay({ profileId, name: who?.name || "", ids, pkgs, sum });
+          }}
+        />
+      )}
+
+      {settlePay && (
+        <PayModal name={settlePay.name}
+          selection={{ ids: settlePay.ids, pkgs: settlePay.pkgs, sum: settlePay.sum }}
+          onClose={() => setSettlePay(null)}
+          onConfirm={(method, reference) => {
+            payVideos(settlePay.profileId, settlePay.ids, settlePay.pkgs, method, reference);
+            setSettlePay(null);
+          }} />
+      )}
+
       {addToPkg && (
         <PickVideosModal
           title="Добави видеа в пакета"
@@ -494,11 +525,11 @@ function EarningRow({
 
   const caption =
     st === "ontime" ? <span style={{ color: "var(--bm-success-600)" }}>в срок</span>
-      : st === "owed" ? <span style={{ color: "var(--bm-success-600)" }}>дължимо</span>
-      : st === "late" && e.accepted_at ? <span style={{ color: "var(--bm-danger-600)" }}>{e.days_late} дни късно</span>
-      : st === "late" ? <span style={{ color: "var(--bm-danger-600)" }}>просрочено</span>
+      : st === "owed" ? <span style={{ color: "var(--bm-success-600)" }}>натрупано</span>
+      : st === "late" && e.accepted_at ? <span style={{ color: "var(--bm-danger-600)" }}>качено {e.days_late} дни късно</span>
+      : st === "late" ? <span style={{ color: "var(--bm-danger-600)" }}>закъсня с качването</span>
       : st === "review" ? <span style={{ color: "var(--bm-primary)" }}>часовникът спрял</span>
-      : st === "due" ? <span style={{ color: "var(--bm-warning-700)" }}>изтича</span>
+      : st === "due" ? <span style={{ color: "var(--bm-warning-700)" }}>качване до {shortDay(e.due_at)}</span>
       : st === "paid" ? <span className="bm-text-subtle">платено</span>
       : <span className="bm-text-subtle">в игра</span>;
 

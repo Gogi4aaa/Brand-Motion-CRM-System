@@ -310,3 +310,51 @@
   .pay-vr2 { grid-template-columns: 20px 22px minmax(0,1fr) 108px; row-gap: 4px; }
   .pay-vr2 > *:nth-child(4), .pay-vr2 > *:nth-child(5) { grid-column: 3; }
 }
+
+/* ===========================================================================
+   Месечна сметка (0053) — панелът, с който се затваря месецът.
+   =========================================================================== */
+.ms-panel { max-width: 720px; width: 100%; }
+.ms-grand { font-family: var(--bm-font-mono); font-size: var(--bm-text-lg);
+  font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.ms-person { border-bottom: 1px solid var(--bm-border); }
+.ms-person:last-child { border-bottom: none; }
+.ms-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 4px; background: none; border: none; cursor: pointer;
+  text-align: left; color: inherit; font: inherit;
+}
+.ms-head:hover { background: var(--bm-surface-2); }
+.ms-chev { color: var(--bm-text-subtle); font-size: 10px; width: 11px; flex: none;
+  transition: transform .16s var(--bm-ease); }
+.ms-name { flex: 1; min-width: 0; font-size: var(--bm-text-sm); font-weight: 500; }
+.ms-sum { font-family: var(--bm-font-mono); font-size: 17px; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.ms-body { padding: 2px 4px 12px 25px; }
+.ms-group { margin-bottom: 10px; }
+.ms-group.is-muted { opacity: .78; }
+.ms-grp-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--bm-font-mono); font-size: 9.5px; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--bm-text-subtle);
+  padding: 6px 8px 4px; border-bottom: 1px solid var(--bm-border);
+}
+.ms-grp-head b { font-family: var(--bm-font-mono); font-size: 12px; letter-spacing: 0;
+  text-transform: none; color: var(--bm-text-muted); font-weight: 600; }
+
+.ms-line {
+  display: grid; grid-template-columns: minmax(0,1fr) auto;
+  gap: 2px 12px; padding: 7px 8px; border-radius: var(--bm-radius-sm);
+}
+.ms-line:hover { background: var(--bm-surface-2); }
+.ms-t { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-m { grid-column: 1; font-size: 11.5px; color: var(--bm-text-subtle); }
+.ms-a { grid-row: 1 / span 2; align-self: center; text-align: right;
+  font-family: var(--bm-font-mono); font-size: 13.5px; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .ms-body { padding-left: 10px; }
+  .ms-t { white-space: normal; }
+}

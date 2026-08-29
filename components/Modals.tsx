@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
+import { CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, contentItemSchema, onboardSchema, cycleSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type ContentItemForm, type OnboardForm, type CycleForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 import { BrandSectionsView } from "./BrandTab";
@@ -861,16 +861,33 @@ function ContentModal() {
                         {team.find((m) => m.initials === s.assignee)?.name || ""}
                       </span>
                     )}
-                    {(canAssignStages || s.assignee === currentUser.initials) ? (
-                      <select className="bm-select" style={{ minHeight: 32, fontSize: "var(--bm-text-xs)" }} value={s.status} onChange={(e) => setStageStatus(editing.id, st.key, e.target.value as "todo" | "doing" | "done" | "blocked")}>
-                        <option value="todo">Чакащо</option>
-                        <option value="doing">В процес</option>
-                        <option value="done">Готово</option>
-                        <option value="blocked">Блокирано</option>
-                      </select>
-                    ) : (
-                      <span className={"bm-badge " + stageStatusMeta(s.status as "todo" | "doing" | "done" | "blocked").cls}>{stageStatusMeta(s.status as "todo" | "doing" | "done" | "blocked").label}</span>
-                    )}
+                    {/* Състоянието НЕ се въвежда — то е позицията на етапа спрямо
+                        текущия. Второ копие на същия факт само се разсинхронизираше.
+                        Остава единственото полезно действие: „Готово“ на текущия етап,
+                        което придвижва видеото (и е единственият път на телефон,
+                        където бордът Продукция не поддържа влачене). */}
+                    {(() => {
+                      const order = stagesForType((live?.type ?? editing?.type) as ContentType).map((x) => x.key);
+                      const cur = (live?.current_stage ?? editing.current_stage) || order[0];
+                      const published = live?.published ?? editing.published;
+                      const pos = order.indexOf(st.key) - order.indexOf(cur);
+                      if (published || pos < 0) {
+                        return <span className="bm-badge bm-badge--success">Готово</span>;
+                      }
+                      if (pos > 0) {
+                        return <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>предстои</span>;
+                      }
+                      // текущият етап
+                      return (canAssignStages || s.assignee === currentUser.initials) ? (
+                        <button type="button" className="bm-btn bm-btn--primary bm-btn--sm"
+                          onClick={() => setStageStatus(editing.id, st.key, "done")}
+                          title="Отбелязва етапа готов и придвижва видеото нататък">
+                          Готово
+                        </button>
+                      ) : (
+                        <span className="bm-badge bm-badge--warning">В процес</span>
+                      );
+                    })()}
                   </div>
                 );
               })}

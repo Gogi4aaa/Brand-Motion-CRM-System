@@ -226,6 +226,34 @@ export interface WorkerOwed {
   owed_count: number;
 }
 
+// ---- Месечна сметка (0053) --------------------------------------------------
+// Един ред на позиция, както го дава `bm_month_settlement`. Фронтендът само
+// групира и сумира — не решава кое влиза.
+export interface SettlementLine {
+  profile_id: string;
+  initials: string;
+  worker_name: string;
+  kind: "video" | "package";
+  ref_id: number;
+  title: string;
+  client_name?: string | null;
+  role_label?: string | null;
+  earned_on?: string | null;
+  carried_over: boolean;   // заработено ПРЕДИ избрания месец
+  price: number;
+  bonus: number;
+  amount: number;          // цена + заслужена премия
+}
+
+// Самопроверката: сборът от редовете срещу v_worker_owed.owed.
+export interface SettlementCheck {
+  profile_id: string;
+  initials: string;
+  from_lines: number;
+  from_view: number;
+  ok: boolean;
+}
+
 // Пакетът с прогреса си — `v_package_progress`.
 export interface PackageProgress {
   id: number;

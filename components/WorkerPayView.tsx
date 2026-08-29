@@ -148,7 +148,7 @@ export function WorkerPayView({
             <span>За правене</span>
             <b style={{ color: "var(--bm-warning-700)" }}>
               {groups.todo.filter((e) => e.timeline === "изтича" || e.timeline === "просрочено").length || ""}
-              {groups.todo.some((e) => e.timeline === "изтича" || e.timeline === "просрочено") ? " с наближаващ срок" : ""}
+              {groups.todo.some((e) => e.timeline === "изтича" || e.timeline === "просрочено") ? " с наближаващ срок за качване" : ""}
             </b>
           </div>
           {groups.todo.map((e) => {
@@ -162,8 +162,8 @@ export function WorkerPayView({
                   <span className="t">{e.title}</span>
                   <span className="m" style={{ color: late ? "var(--bm-danger-600)" : soon ? "var(--bm-warning-700)" : undefined }}>
                     {e.due_at
-                      ? `до ${shortDay(e.due_at)} · ${days !== null && days >= 0 ? `остават ${days} ${days === 1 ? "ден" : "дни"}` : `просрочено с ${Math.abs(days ?? 0)}`}`
-                      : "без срок"}
+                      ? `качване до ${shortDay(e.due_at)} · ${days !== null && days >= 0 ? `остават ${days} ${days === 1 ? "ден" : "дни"}` : `закъсня с ${Math.abs(days ?? 0)}`}`
+                      : "без срок за качване"}
                   </span>
                 </span>
                 <span className="r">
@@ -261,6 +261,7 @@ export function WorkerPayView({
 
       <div className="pw-foot">
         Сумите са само твои. Другите от екипа не се виждат — нито тук, нито през приложението.
+        Плащането е веднъж месечно; сроковете горе са за качване на видеото и решават премията.
       </div>
     </div>
   );

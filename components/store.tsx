@@ -45,6 +45,8 @@ import {
   type VideoEarning,
   type WorkerPackage,
   type PackageProgress,
+  type SettlementLine,
+  type SettlementCheck,
   type WorkerOwed,
   type Payout,
   type VideoRate,
@@ -231,6 +233,7 @@ interface Store {
   undoPayout: (payoutId: string) => void;
   createPackage: (profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number, earningIds?: number[], autoFill?: boolean) => void;
   addToPackage: (earningId: number, packageId: number) => void;
+  loadSettlement: (month: string | null) => Promise<{ lines: SettlementLine[]; checks: SettlementCheck[] } | null>;
   removeFromPackage: (earningId: number) => void;
   // ---- срокове и премии (0050) ----
   submitVideo: (earningId: number) => void;      // работникът: „готово“
@@ -1018,11 +1021,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const item = contentItems.find((c) => c.id === itemId);
     if (!item || item.published) return;
     const publishedAt = new Date().toISOString();
-    setContentItems((list) => list.map((c) => (c.id === itemId ? { ...c, published: true, published_at: publishedAt, current_stage: "publish" } : c)));
-    persistItem(itemId, { published: true, published_at: publishedAt, current_stage: "publish" });
+    // Публикуваното видео има ВСИЧКИ етапи готови. Без този ред панелът
+    // „кой какво прави“ оставаше с „Публикуване · В процес“ на вече качено
+    // видео и объркваше всичко надолу по веригата.
+    const lastKey = stagesForType(item.type).map((s) => s.key).slice(-1)[0];
+    const stages = (item.stages || defaultStages(team, "", currentUser.initials, item.type))
+      .map((s) => ({ ...s, status: "done" as StageStatus }));
+    setContentItems((list) => list.map((c) => (c.id === itemId
+      ? { ...c, published: true, published_at: publishedAt, current_stage: lastKey, stages } : c)));
+    persistItem(itemId, { published: true, published_at: publishedAt, current_stage: lastKey, stages });
     syncStageTask(itemId, item.title, item.client, null, "");
     logActivity(`приключи видео „${item.title || itemId}“`);
-  }, [contentItems, syncStageTask, logActivity, persistItem]);
+  }, [contentItems, team, currentUser.initials, syncStageTask, logActivity, persistItem]);
 
   const setStageAssignee = useCallback((itemId: string, stageKey: string, assignee: string) => {
     const item = contentItems.find((c) => c.id === itemId);
@@ -1046,6 +1056,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [contentItems, tasks, syncStageTask, notify, notifyError, persistItem]);
 
+  // Приема само „done“ на ТЕКУЩИЯ етап — това придвижва видеото нататък.
+  // Другите състояния не се задават на ръка (виж края на функцията).
   const setStageStatus = useCallback((itemId: string, stageKey: string, status: StageStatus) => {
     const c = contentItems.find((x) => x.id === itemId);
     if (!c) return;
@@ -1080,10 +1092,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!isLast && to) notify(to, `Видео „${c.title || "(без заглавие)"}“ чака твоя етап: ${stageMeta(nextKey).label}`, { entity_type: "content", entity_id: itemId, link: itemId });
       return;
     }
-    // Otherwise just set this stage's status.
-    const stages = (c.stages || []).map((s) => (s.key === stageKey ? { ...s, status } : s));
-    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, stages } : x)));
-    persistItem(itemId, { stages });
+    // Всичко друго се ИГНОРИРА. Състоянието на етап вече не е самостоятелно
+    // поле, което се въвежда — то е позицията му спрямо текущия етап и се
+    // преизчислява от advanceStage / completeVideo. Оставено е само
+    // придвижването нагоре, защото то е реално действие, а не описание.
   }, [contentItems, tasks, syncStageTask, notify, persistItem]);
 
   // ---- Корекции по монтажа ----
@@ -1642,6 +1654,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, "Пакетът не се запази", () => logActivity(`създаде пакет ${target} видеа за €${total}`, "admin"));
   }, [payRpc, logActivity]);
 
+  // Месечната сметка. Не се пази в state — дърпа се при отваряне на панела, за
+  // да е винаги прясна; парите не бива да идват от кеш.
+  const loadSettlement = useCallback(async (month: string | null) => {
+    const client = sb();
+    if (!client) return null;
+    const [l, c] = await Promise.all([
+      client.rpc("bm_month_settlement", { p_month: month }),
+      client.rpc("bm_settlement_check", { p_month: month }),
+    ]);
+    if (l.error || c.error) {
+      console.error("[BrandMotion] loadSettlement failed:", l.error || c.error);
+      notifyError("Сметката не се зареди: " + (l.error || c.error)?.message);
+      return null;
+    }
+    return { lines: (l.data || []) as SettlementLine[], checks: (c.data || []) as SettlementCheck[] };
+  }, [notifyError]);
+
   // Видео влиза и излиза от пакет по всяко време, докато не е платено.
   // При излизане цената се връща към тарифата (освен ако е ръчно заключена).
   const addToPackage = useCallback((earningId: number, packageId: number) => {
@@ -1706,7 +1735,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid, setTaskPay, setMemberRate,
     setVideoPrice, setVideoRate, payVideos, payAllFor, undoPayout, createPackage,
     submitVideo, acceptVideo, returnVideo, grantBonus, waiveBonus, setDue, setBonus,
-    addToPackage, removeFromPackage,
+    addToPackage, removeFromPackage, loadSettlement,
   };
 
   return (
