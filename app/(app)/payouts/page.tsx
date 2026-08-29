@@ -103,7 +103,8 @@ function AdminPayouts() {
     team, currentUser, payRoles, videoEarnings, packageProgress, workerOwed,
     payouts, videoRates, invoices,
     setVideoPrice, payVideos, payAllFor, undoPayout,
-    acceptVideo, returnVideo, grantBonus, createPackage, clients: clientList,
+    acceptVideo, returnVideo, grantBonus, createPackage, addToPackage, removeFromPackage,
+    clients: clientList,
   } = useStore();
 
   const [month, setMonth] = useState<string | null>(monthKey());
@@ -114,6 +115,7 @@ function AdminPayouts() {
   const [payFor, setPayFor] = useState<string | null>(null);
   const [histFor, setHistFor] = useState<Set<string>>(new Set());
   const [newPkgFor, setNewPkgFor] = useState<string | null>(null);
+  const [addToPkg, setAddToPkg] = useState<{ pkgId: number; profileId: string } | null>(null);
   const isAdmin = true;
   const rows = useMemo(() => {
     return team
@@ -314,7 +316,16 @@ function AdminPayouts() {
                       <div>
                         <div className="pay-grp">
                           <span>По пакета</span>
-                          <b>{visIn.length} {visIn.length === 1 ? "видео" : "видеа"}</b>
+                          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <b>{r.inPkg.length} от {r.pkg.videos_total}</b>
+                            {r.pkg.status !== "paid" && r.inPkg.length < r.pkg.videos_total && (
+                              <button className="bm-btn bm-btn--ghost bm-btn--sm"
+                                onClick={(ev) => { ev.preventDefault(); ev.stopPropagation();
+                                  setAddToPkg({ pkgId: r.pkg!.id, profileId: r.m.id }); }}>
+                                + Добави видео
+                              </button>
+                            )}
+                          </span>
                         </div>
                         <PackageCard pkg={r.pkg}
                           selectable={isAdmin && r.pkg.status === "completed" && !r.pkg.payout_id}
@@ -324,7 +335,8 @@ function AdminPayouts() {
                         {visIn.map((e) => (
                           <EarningRow key={e.id} e={e} checked={false} onCheck={() => {}}
                             onPrice={(v) => setVideoPrice(e.id, v)}
-                            onAccept={() => acceptVideo(e.id)} onGrant={grantBonus} onReturn={returnVideo} />
+                            onAccept={() => acceptVideo(e.id)} onGrant={grantBonus} onReturn={returnVideo}
+                            onRemoveFromPkg={() => removeFromPackage(e.id)} />
                         ))}
                       </div>
                     )}
@@ -412,15 +424,27 @@ function AdminPayouts() {
 
       <ProfitStrip month={month} invoices={invoices} payouts={payouts} />
 
+      {addToPkg && (
+        <PickVideosModal
+          title="Добави видеа в пакета"
+          candidates={videoEarnings.filter((e) => e.profile_id === addToPkg.profileId && !e.package_id
+            && e.status !== "paid" && !!e.content_item_id)}
+          max={(packageProgress.find((p) => p.id === addToPkg.pkgId)?.videos_total || 0)
+             - videoEarnings.filter((e) => e.package_id === addToPkg.pkgId).length}
+          onClose={() => setAddToPkg(null)}
+          onConfirm={(ids) => { ids.forEach((id) => addToPackage(id, addToPkg.pkgId)); setAddToPkg(null); }}
+        />
+      )}
+
       {newPkgFor !== null && (
         <PackageModal
           team={team.filter((m) => m.initials !== currentUser.initials)}
           roles={payRoles}
           clients={clientList}
-          preset={newPkgFor}
+          earnings={videoEarnings.filter((e) => !e.package_id && e.status !== "paid" && !!e.content_item_id)}
           onClose={() => setNewPkgFor(null)}
-          onCreate={(profileId, target, total, label, role, client, base, bonus) => {
-            createPackage(profileId, target, total, label, role, client, base, bonus);
+          onCreate={(profileId, target, total, label, role, client, base, bonus, ids, auto) => {
+            createPackage(profileId, target, total, label, role, client, base, bonus, ids, auto);
             setNewPkgFor(null);
           }}
         />
@@ -455,11 +479,12 @@ function RowHead() {
 
 // Ред с видео — осемте състояния от спецификацията.
 function EarningRow({
-  e, checked, onCheck, onPrice, onAccept, onGrant, onReturn,
+  e, checked, onCheck, onPrice, onAccept, onGrant, onReturn, onRemoveFromPkg,
 }: {
   e: VideoEarning; checked: boolean; onCheck: () => void; onPrice: (v: number) => void;
   onAccept: () => void; onGrant: (id: number, reason: string) => void;
   onReturn: (id: number, reason: string) => void;
+  onRemoveFromPkg?: () => void;   // само за редовете в пакет
 }) {
   const st = rowState(e);
   const [cls, ch] = MARK[st];
@@ -489,6 +514,11 @@ function EarningRow({
           {e.role_label || e.role_key}{e.client_name ? " · " + e.client_name : ""}
           {e.redos > 0 ? ` · ${e.redos} преправк${e.redos === 1 ? "а" : "и"}` : ""}
           {e.price_locked ? " · 🔒 ръчна цена" : ""}
+          {!e.content_item_id && (
+            <span title="Видеото е изтрито; начислението остава, за да не изчезне сумата">
+              {" "}· 👻 изтрито видео
+            </span>
+          )}
         </span>
       </span>
       <span className="pay-dt">
@@ -533,6 +563,10 @@ function EarningRow({
             const why = window.prompt("Защо все пак получава премията?");
             if (why) onGrant(e.id, why);
           }}>дай премията</button>
+        )}
+        {onRemoveFromPkg && !paid && st !== "review" && (
+          <button className="bm-btn bm-btn--ghost bm-btn--sm" title="Извади от пакета — цената се връща на тарифата"
+            onClick={(ev) => { ev.preventDefault(); onRemoveFromPkg(); }}>махни</button>
         )}
       </span>
     </label>
@@ -662,20 +696,94 @@ function PayModal({ name, selection, onClose, onConfirm }: {
   );
 }
 
-// Създаване на пакет. Ограничението „един активен пакет на човек+клиент+роля“
-// се налага от базата — второ видео иначе би влязло в първия пакет.
+// Списък с видеа за избор — един и същ за създаване на пакет и за добавяне след това.
+function VideoPicker({
+  candidates, selected, onToggle, max,
+}: {
+  candidates: VideoEarning[]; selected: Set<number>; onToggle: (id: number) => void; max: number;
+}) {
+  if (candidates.length === 0) {
+    return (
+      <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>
+        Няма свободни видеа за този човек по избраните роля и клиент.
+        Изтритите видеа не се предлагат — те носят пари, но не са работа занапред.
+      </p>
+    );
+  }
+  return (
+    <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--bm-border)",
+      borderRadius: "var(--bm-radius-sm)" }}>
+      {candidates.map((e) => {
+        const on = selected.has(e.id);
+        const full = !on && selected.size >= max;
+        return (
+          <label key={e.id} className="pay-vrow" style={{ opacity: full ? .45 : 1, cursor: full ? "default" : "pointer" }}>
+            <input type="checkbox" className="pay-cb" checked={on} disabled={full}
+              onChange={() => onToggle(e.id)} />
+            <span className="pay-vinfo">
+              <span className="pay-vt">{e.title}</span>
+              <span className="pay-vm">
+                <span className="pay-rolechip">{e.role_label || e.role_key}</span>
+                {e.client_name && <span>{e.client_name}</span>}
+                <span>{e.earned_at ? "завършено" : e.timeline === "чака преглед" ? "чака преглед" : "в процес"}</span>
+              </span>
+            </span>
+            <span className="pay-vprice" style={{ color: "var(--bm-text-subtle)" }}>{money(e.price)}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+// Добавяне на видеа към вече създаден пакет.
+function PickVideosModal({
+  title, candidates, max, onClose, onConfirm,
+}: {
+  title: string; candidates: VideoEarning[]; max: number;
+  onClose: () => void; onConfirm: (ids: number[]) => void;
+}) {
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setSel((s) => {
+    const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n;
+  });
+  return (
+    <div className="bm-modal-overlay" onClick={(ev) => { if (ev.target === ev.currentTarget) onClose(); }}>
+      <div className="bm-modal" style={{ maxWidth: 520 }}>
+        <div className="bm-modal__header"><h3>{title}</h3></div>
+        <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+          <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>
+            Има място за още <b>{max}</b>. Влезлите видеа взимат пакетната цена.
+          </p>
+          <VideoPicker candidates={candidates} selected={sel} onToggle={toggle} max={max} />
+        </div>
+        <div className="bm-modal__footer">
+          <button className="bm-btn bm-btn--secondary" onClick={onClose}>Отказ</button>
+          <button className="bm-btn bm-btn--primary" disabled={sel.size === 0}
+            onClick={() => onConfirm(Array.from(sel))}>
+            Добави {sel.size || ""}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Създаване на пакет. Видеата се ИЗБИРАТ — системата вече не ги поглъща сама.
+// Ограничението „един активен пакет на човек+клиент+роля“ се налага от базата.
 function PackageModal({
-  team, roles, clients, preset, onClose, onCreate,
+  team, roles, clients, earnings, onClose, onCreate,
 }: {
   team: { id: string; name: string; initials: string }[];
   roles: { key: string; label: string }[];
   clients: { id: string; name: string; archived_at?: string | null }[];
-  preset: string;
+  earnings: VideoEarning[];
   onClose: () => void;
   onCreate: (profileId: string, target: number, total: number, label: string,
-    role: string | null, client: string | null, base: number | null, bonus: number) => void;
+    role: string | null, client: string | null, base: number | null, bonus: number,
+    ids: number[], auto: boolean) => void;
 }) {
-  const [profileId, setProfileId] = useState(preset || team[0]?.id || "");
+  const [profileId, setProfileId] = useState(team[0]?.id || "");
   const [target, setTarget] = useState(10);
   const [total, setTotal] = useState(160);
   const [role, setRole] = useState("");
@@ -683,6 +791,21 @@ function PackageModal({
   const [base, setBase] = useState("");
   const [bonus, setBonus] = useState(0);
   const [label, setLabel] = useState("");
+  const [auto, setAuto] = useState(false);
+  const [sel, setSel] = useState<Set<number>>(new Set());
+
+  // Кандидатите се стесняват с ролята и клиента — същите правила като в базата.
+  const candidates = useMemo(() => earnings.filter((e) =>
+    e.profile_id === profileId
+    && (!role || e.role_key === role)
+    && (!client || e.client_id === client)
+  ), [earnings, profileId, role, client]);
+
+  // Смяна на човек/роля/клиент изчиства избора, за да не остане невалиден.
+  const reset = <T,>(fn: (v: T) => void) => (v: T) => { fn(v); setSel(new Set()); };
+  const toggle = (id: number) => setSel((s) => {
+    const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n;
+  });
 
   const perVideo = target > 0 ? total / target : 0;
   const baseNum = base === "" ? null : parseFloat(base);
@@ -690,11 +813,11 @@ function PackageModal({
 
   return (
     <div className="bm-modal-overlay" onClick={(ev) => { if (ev.target === ev.currentTarget) onClose(); }}>
-      <div className="bm-modal" style={{ maxWidth: 480 }}>
+      <div className="bm-modal" style={{ maxWidth: 560 }}>
         <div className="bm-modal__header"><h3>Нов пакет</h3></div>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
           <div className="bm-field"><label className="bm-label">Човек</label>
-            <select className="bm-input" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+            <select className="bm-input" value={profileId} onChange={(e) => reset(setProfileId)(e.target.value)}>
               {team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select></div>
 
@@ -709,12 +832,12 @@ function PackageModal({
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--bm-space-3)" }}>
             <div className="bm-field"><label className="bm-label">Роля</label>
-              <select className="bm-input" value={role} onChange={(e) => setRole(e.target.value)}>
+              <select className="bm-input" value={role} onChange={(e) => reset(setRole)(e.target.value)}>
                 <option value="">всяка роля</option>
                 {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select></div>
             <div className="bm-field"><label className="bm-label">Клиент</label>
-              <select className="bm-input" value={client} onChange={(e) => setClient(e.target.value)}>
+              <select className="bm-input" value={client} onChange={(e) => reset(setClient)(e.target.value)}>
                 <option value="">всеки клиент</option>
                 {clients.filter((c) => !c.archived_at).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select></div>
@@ -733,6 +856,19 @@ function PackageModal({
             <input className="bm-input" value={label} onChange={(e) => setLabel(e.target.value)}
               placeholder={`${target} видеа`} /></div>
 
+          {/* ---- ИЗБОРЪТ: кои видеа влизат ---- */}
+          <div className="bm-field">
+            <label className="bm-label">
+              Кои видеа влизат · избрани {sel.size} от {target}
+            </label>
+            <VideoPicker candidates={candidates} selected={sel} onToggle={toggle} max={target} />
+          </div>
+
+          <label className="bm-checkbox" style={{ fontSize: "var(--bm-text-sm)" }}>
+            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            Пълни се сам с нови видеа, докато стигне {target}
+          </label>
+
           <div className="pay-recon" style={{ marginTop: 0 }}>
             <span>Цена на видео <b>{money(perVideo)}</b></span>
             {bonus > 0 && <span>С премия <b>{money(perVideo + bonus)}</b></span>}
@@ -743,15 +879,17 @@ function PackageModal({
             )}
           </div>
           <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", margin: 0 }}>
-            Базовата цена е колко би струвало без пакет — от нея излиза „Спестено“. Премията се
-            получава само ако видеото е подадено до срока си.
+            Може да оставиш пакета празен и да добавяш видеа после. Базовата цена е колко би струвало
+            без пакет — от нея излиза „Спестено“.
           </p>
         </div>
         <div className="bm-modal__footer">
           <button className="bm-btn bm-btn--secondary" onClick={onClose}>Отказ</button>
           <button className="bm-btn bm-btn--primary" disabled={!profileId || target < 1}
             onClick={() => onCreate(profileId, target, total, label || `${target} видеа`,
-              role || null, client || null, baseNum !== null && !Number.isNaN(baseNum) ? baseNum : null, bonus)}>
+              role || null, client || null,
+              baseNum !== null && !Number.isNaN(baseNum) ? baseNum : null, bonus,
+              Array.from(sel), auto)}>
             Създай пакет
           </button>
         </div>

@@ -229,7 +229,9 @@ interface Store {
   payVideos: (profileId: string, earningIds: number[], packageIds: number[], method?: string, reference?: string) => void;
   payAllFor: (profileId: string, method?: string, reference?: string) => void;
   undoPayout: (payoutId: string) => void;
-  createPackage: (profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number) => void;
+  createPackage: (profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number, earningIds?: number[], autoFill?: boolean) => void;
+  addToPackage: (earningId: number, packageId: number) => void;
+  removeFromPackage: (earningId: number) => void;
   // ---- срокове и премии (0050) ----
   submitVideo: (earningId: number) => void;      // работникът: „готово“
   acceptVideo: (earningId: number) => void;      // админът приема, премията се решава
@@ -499,31 +501,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { client.removeChannel(ch); };
   }, [rtToken]);
 
-  // Live пари по видео (0046): тригерът начислява при движение на задачите,
-  // админът коригира сумите — всичко се вижда веднага и от двете страни. RLS
-  // пуска на работника само неговите редове.
-  useEffect(() => {
-    if (!supabaseConfigured || !rtToken) return;
-    const client = createClient();
-    client.realtime.setAuth(rtToken);
-    const upsert = <T extends { id: number | string }>(set: React.Dispatch<React.SetStateAction<T[]>>) =>
-      (payload: { eventType: string; new: unknown; old: unknown }) => {
-        if (payload.eventType === "DELETE") {
-          const oldId = (payload.old as { id?: number | string } | null)?.id;
-          if (oldId !== undefined) set((list) => list.filter((r) => r.id !== oldId));
-          return;
-        }
-        const row = payload.new as T;
-        set((list) => (list.some((r) => r.id === row.id) ? list.map((r) => (r.id === row.id ? row : r)) : [...list, row]));
-      };
-    const ch = client
-      .channel("video-pay-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "video_earnings" }, upsert(setVideoEarnings))
-      .on("postgres_changes", { event: "*", schema: "public", table: "worker_packages" }, upsert(setWorkerPackages))
-      .on("postgres_changes", { event: "*", schema: "public", table: "payouts" }, upsert(setPayouts))
-      .subscribe();
-    return () => { client.removeChannel(ch); };
-  }, [rtToken]);
 
   // Live продукция: смяна на етап/изпълнител/дата от един човек се появява
   // веднага при всички останали (content_items + content_cycles са в
@@ -1543,6 +1520,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (wpk.data) setWorkerPackages(wpk.data as WorkerPackage[]);
   }, []);
 
+  // Live пари по видео. ВАЖНО: payload-ът носи СУРОВИЯ ред от video_earnings,
+  // а екранът работи с обогатения от v_earning_full (title, role_label,
+  // client_name, payable, timeline). Залепването на суровия ред изтриваше тези
+  // полета и редът се показваше без заглавие, с „editor" вместо роля.
+  // Затова тук само отбелязваме, че нещо се е променило, и презареждаме изгледите.
+  // `payouts` е обикновена таблица без изглед — там суровият ред е верен.
+  useEffect(() => {
+    if (!supabaseConfigured || !rtToken) return;
+    const client = createClient();
+    client.realtime.setAuth(rtToken);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefetch = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void refetchPay(); }, 250);  // сливаме поредица от промени
+    };
+    const ch = client
+      .channel("video-pay-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "video_earnings" }, scheduleRefetch)
+      .on("postgres_changes", { event: "*", schema: "public", table: "worker_packages" }, scheduleRefetch)
+      .on("postgres_changes", { event: "*", schema: "public", table: "payouts" }, (payload) => {
+        if (payload.eventType === "DELETE") {
+          const oldId = (payload.old as { id?: string } | null)?.id;
+          if (oldId) setPayouts((list) => list.filter((r) => r.id !== oldId));
+          return;
+        }
+        const row = payload.new as Payout;
+        setPayouts((list) => (list.some((r) => r.id === row.id) ? list.map((r) => (r.id === row.id ? row : r)) : [row, ...list]));
+        scheduleRefetch();
+      })
+      .subscribe();
+    return () => { if (timer) clearTimeout(timer); client.removeChannel(ch); };
+  }, [rtToken, refetchPay]);
+
   // Обща обвивка: извикай RPC, покажи грешката на екрана, презареди.
   const payRpc = useCallback((fn: string, args: Record<string, unknown>, failMsg: string, done?: () => void) => {
     const client = sb();
@@ -1622,13 +1632,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Пакет: N видеа за X€ — поема наличните незаплатени начисления на човека.
   const createPackage = useCallback((profileId: string, target: number, total: number, label?: string,
-      roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number) => {
+      roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number,
+      earningIds?: number[], autoFill?: boolean) => {
     payRpc("bm_create_package", {
       p_profile: profileId, p_target: target, p_total: Math.round((total || 0) * 100) / 100,
       p_label: label ?? "", p_role: roleKey ?? null, p_client: clientId ?? null,
       p_base: basePrice ?? null, p_bonus: Math.round((bonusPerVideo || 0) * 100) / 100,
+      p_earnings: earningIds ?? [], p_auto: !!autoFill,
     }, "Пакетът не се запази", () => logActivity(`създаде пакет ${target} видеа за €${total}`, "admin"));
   }, [payRpc, logActivity]);
+
+  // Видео влиза и излиза от пакет по всяко време, докато не е платено.
+  // При излизане цената се връща към тарифата (освен ако е ръчно заключена).
+  const addToPackage = useCallback((earningId: number, packageId: number) => {
+    payRpc("bm_add_to_package", { p_earning: earningId, p_package: packageId }, "Видеото не влезе в пакета");
+  }, [payRpc]);
+
+  const removeFromPackage = useCallback((earningId: number) => {
+    payRpc("bm_remove_from_package", { p_earning: earningId }, "Видеото не излезе от пакета");
+  }, [payRpc]);
 
   // ==========================================================================
   // СРОКОВЕ И ПРЕМИИ (0050)
@@ -1684,6 +1706,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid, setTaskPay, setMemberRate,
     setVideoPrice, setVideoRate, payVideos, payAllFor, undoPayout, createPackage,
     submitVideo, acceptVideo, returnVideo, grantBonus, waiveBonus, setDue, setBonus,
+    addToPackage, removeFromPackage,
   };
 
   return (
