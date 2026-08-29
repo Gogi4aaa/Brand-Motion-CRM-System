@@ -7,10 +7,6 @@ import {
   tasks as seedTasks,
   seedTeam,
   seedLeads,
-  seedCampaigns,
-  seedIntegrations,
-  seedAdDrafts,
-  seedSocialPosts,
   seedContentItems,
   defaultStages,
   stagesForType,
@@ -23,10 +19,8 @@ import {
   monthKey,
   monthLabel,
   todayISO,
-  seedIdeas,
   visibleClientsFor,
-  type Idea,
-  type IdeaStatus,
+  activeClients,
   type Approval,
   type ShootBooking,
   type AccessRole,
@@ -39,11 +33,6 @@ import {
   type Comment,
   type Lead,
   type LeadStage,
-  type Campaign,
-  type Integration,
-  type Provider,
-  type AdDraft,
-  type SocialPost,
   type ContentItem,
   type ContentType,
   type ContentCycle,
@@ -55,10 +44,12 @@ import {
   type PayRole,
   type VideoEarning,
   type WorkerPackage,
+  type PackageProgress,
+  type WorkerOwed,
   type Payout,
   type VideoRate,
 } from "@/lib/data";
-import type { ClientForm, TaskForm, InvoiceForm, LeadForm, CampaignForm, AdDraftForm, SocialPostForm, ContentItemForm, OnboardForm, IdeaForm } from "@/lib/schemas";
+import type { ClientForm, TaskForm, InvoiceForm, LeadForm, ContentItemForm, OnboardForm } from "@/lib/schemas";
 import { createClient, supabaseConfigured } from "@/lib/supabase/client";
 import { brandValueToText, type BrandAnswers, type BrandProfile } from "@/lib/brand";
 
@@ -98,10 +89,6 @@ export type Modal =
   | { kind: "lead"; mode: "create" }
   | { kind: "lead"; mode: "edit"; lead: Lead }
   | { kind: "onboard"; lead: Lead }
-  | { kind: "campaign"; mode: "create"; clientId?: string }
-  | { kind: "campaign"; mode: "edit"; campaign: Campaign }
-  | { kind: "ad"; mode: "create" }
-  | { kind: "ad"; mode: "edit"; ad: AdDraft }
   | { kind: "content"; mode: "create"; clientId: string; date: string }
   | { kind: "content"; mode: "edit"; item: ContentItem }
   | { kind: "importScripts" }
@@ -110,8 +97,6 @@ export type Modal =
   | { kind: "createPosts" }
   | { kind: "password" }
   | { kind: "cycle" }
-  | { kind: "idea"; mode: "create" }
-  | { kind: "idea"; mode: "edit"; idea: Idea }
   | { kind: "confirm"; title: string; message: string; confirmLabel: string; onConfirm: () => void }
   | null;
 
@@ -150,8 +135,10 @@ interface Store {
   tasks: Task[];
   // ---- Плащане по видео (0046) ----
   payRoles: PayRole[];
-  videoEarnings: VideoEarning[];
-  workerPackages: WorkerPackage[];
+  videoEarnings: VideoEarning[];      // v_earning_full — обогатени начисления
+  workerPackages: WorkerPackage[];    // суровата таблица (за пакетната логика)
+  packageProgress: PackageProgress[]; // v_package_progress — прогрес и премии
+  workerOwed: WorkerOwed[];           // v_worker_owed — ЕДИНСТВЕНИЯТ източник за „дължимо“
   payouts: Payout[];
   videoRates: VideoRate[];
   activity: ActivityItem[];
@@ -159,13 +146,8 @@ interface Store {
   team: TeamMember[];
   comments: Comment[];
   leads: Lead[];
-  campaigns: Campaign[];
-  integrations: Integration[];
-  adDrafts: AdDraft[];
-  socialPosts: SocialPost[];
   contentItems: ContentItem[];
   cycles: ContentCycle[];
-  ideas: Idea[];
   approvals: Approval[];
   bookings: ShootBooking[];
   addBooking: (clientId: string, date: string, start: string, end: string, note: string) => void;
@@ -178,26 +160,10 @@ interface Store {
   loading: boolean;
   usingMock: boolean;
   signOut: () => Promise<void>;
-  toggleIntegration: (provider: Provider) => void;
-  addAdDraft: (f: AdDraftForm) => void;
-  updateAdDraft: (id: string, f: AdDraftForm) => void;
-  deleteAdDraft: (id: string) => void;
-  publishAd: (id: string) => void;
-  addSocialPost: (f: SocialPostForm, status: "draft" | "scheduled") => void;
-  updateSocialPost: (id: string, f: SocialPostForm) => void;
-  deleteSocialPost: (id: string) => void;
-  publishSocialPost: (id: string) => void;
   addContentItem: (clientId: string, f: ContentItemForm) => void;
   updateContentItem: (id: string, f: ContentItemForm) => void;
   deleteContentItem: (id: string) => void;
   importScripts: (clientId: string, type: ContentType, startStage: string, videos: { title: string; script: string; hook?: string; cta?: string }[], cycleId?: string, footageUrl?: string, stageAssignees?: Record<string, string>, notes?: string) => void;
-  addIdea: (f: IdeaForm) => void;
-  updateIdea: (id: string, f: IdeaForm) => void;
-  deleteIdea: (id: string) => void;
-  voteIdea: (id: string, delta: number) => void;
-  setIdeaStatus: (id: string, status: IdeaStatus) => void;
-  promoteIdea: (id: string) => void;
-  addAiIdeas: (clientId: string, list: { title: string; description: string; hook: string }[]) => void;
   requestApproval: (contentItemId: string) => Promise<string | null>;
   requestBatchApproval: (itemIds: string[]) => Promise<string | null>;
   dismissSuggestion: (approvalId: string) => void;
@@ -235,16 +201,14 @@ interface Store {
   deleteLead: (id: string) => void;
   moveLead: (id: string, stage: LeadStage) => void;
   onboardLead: (leadId: string, f: OnboardForm) => void;
-  addCampaign: (f: CampaignForm) => void;
-  updateCampaign: (id: string, f: CampaignForm) => void;
-  deleteCampaign: (id: string) => void;
   modal: Modal;
   openModal: (m: Modal) => void;
   closeModal: () => void;
   // clients
   addClient: (f: ClientForm) => void;
   updateClient: (id: string, f: ClientForm) => void;
-  deleteClient: (id: string) => void;
+  deleteClient: (id: string) => void;   // архивира (0048)
+  restoreClient: (id: string) => void;
   // invoices
   addInvoice: (f: InvoiceForm) => void;
   updateInvoice: (id: string, f: InvoiceForm) => void;
@@ -265,7 +229,15 @@ interface Store {
   payVideos: (profileId: string, earningIds: number[], packageIds: number[], method?: string, reference?: string) => void;
   payAllFor: (profileId: string, method?: string, reference?: string) => void;
   undoPayout: (payoutId: string) => void;
-  createPackage: (profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null) => void;
+  createPackage: (profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number) => void;
+  // ---- срокове и премии (0050) ----
+  submitVideo: (earningId: number) => void;      // работникът: „готово“
+  acceptVideo: (earningId: number) => void;      // админът приема, премията се решава
+  returnVideo: (earningId: number, reason: string) => void;
+  grantBonus: (earningId: number, reason: string) => void;
+  waiveBonus: (earningId: number, reason?: string) => void;
+  setDue: (earningId: number, due: string) => void;
+  setBonus: (earningId: number, amount: number) => void;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -286,6 +258,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [payRoles, setPayRoles] = useState<PayRole[]>(PAY_ROLES_FALLBACK);
   const [videoEarnings, setVideoEarnings] = useState<VideoEarning[]>([]);
   const [workerPackages, setWorkerPackages] = useState<WorkerPackage[]>([]);
+  const [packageProgress, setPackageProgress] = useState<PackageProgress[]>([]);
+  const [workerOwed, setWorkerOwed] = useState<WorkerOwed[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [videoRates, setVideoRates] = useState<VideoRate[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -293,13 +267,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [team, setTeam] = useState<TeamMember[]>(seedTeam);
   const [comments, setComments] = useState<Comment[]>([]);
   const [leads, setLeads] = useState<Lead[]>(seedLeads);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(seedCampaigns);
-  const [integrations, setIntegrations] = useState<Integration[]>(seedIntegrations);
-  const [adDrafts, setAdDrafts] = useState<AdDraft[]>(seedAdDrafts);
-  const [socialPosts, setSocialPosts] = useState<SocialPost[]>(seedSocialPosts);
   const [contentItems, setContentItems] = useState<ContentItem[]>(seedContentItems);
   const [cycles, setCycles] = useState<ContentCycle[]>([]);
-  const [ideas, setIdeas] = useState<Idea[]>(seedIdeas);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [bookings, setBookings] = useState<ShootBooking[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
@@ -323,7 +292,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const sb = createClient();
-        const [c, iv, t, act, tm, cm, ld, cmp, intg, ad, sp, ci, cc, auth, cyc, idv, apv, vm, bk, tp, wr] = await Promise.all([
+        const [c, iv, t, act, tm, cm, ld, ci, cc, auth, cyc, apv, vm, bk, tp, wr] = await Promise.all([
           sb.from("clients").select("*").order("created_at"),
           sb.from("invoices").select("*").order("created_at"),
           sb.from("tasks").select("*").order("created_at"),
@@ -331,15 +300,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           sb.from("profiles").select("id, name, initials, role, roles, client_ids, approved, email, avatar_url").order("created_at"),
           sb.from("comments").select("*").order("created_at"),
           sb.from("leads").select("*").order("created_at"),
-          sb.from("campaigns").select("*").order("created_at"),
-          sb.from("integrations").select("*"),
-          sb.from("ad_drafts").select("*").order("created_at"),
-          sb.from("social_posts").select("*").order("created_at"),
           sb.from("content_items").select("*").order("date"),
           sb.from("client_connections").select("*"),
           sb.auth.getUser(),
           sb.from("content_cycles").select("*").order("created_at", { ascending: false }),
-          sb.from("ideas").select("*").order("created_at", { ascending: false }),
           sb.from("approvals").select("*").order("created_at", { ascending: false }),
           sb.from("video_metrics").select("*"),
           sb.from("shoot_bookings").select("*").order("date"),
@@ -349,12 +313,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         // Плащане по видео (0046). Ако миграцията още не е пусната, таблиците
         // липсват — тогава просто остават празни и екранът пада обратно към
         // старите task_pay суми, без да чупи останалото зареждане.
-        const [pr, ve, wp, po, vr] = await Promise.all([
+        const [pr, ve, wp, po, vr, pp, wo] = await Promise.all([
           sb.from("pay_roles").select("*").order("sort"),
-          sb.from("video_earnings").select("*"),      // RLS: админ всички, работник — своите
+          sb.from("v_earning_full").select("*"),      // RLS вътре в изгледа: админ всички, работник — своите
           sb.from("worker_packages").select("*"),
           sb.from("payouts").select("*").order("paid_at", { ascending: false }),
           sb.from("video_rates").select("*").order("valid_from", { ascending: false }),
+          sb.from("v_package_progress").select("*"),
+          sb.from("v_worker_owed").select("*").order("owed", { ascending: false }),
         ]);
         if (!cancelled) {
           if (pr.data && pr.data.length) setPayRoles(pr.data as PayRole[]);
@@ -362,6 +328,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (wp.data) setWorkerPackages(wp.data as WorkerPackage[]);
           if (po.data) setPayouts(po.data as Payout[]);
           if (vr.data) setVideoRates(vr.data as VideoRate[]);
+          if (pp.data) setPackageProgress(pp.data as PackageProgress[]);
+          if (wo.data) setWorkerOwed(wo.data as WorkerOwed[]);
         }
 
         // Липсваща таблица (миграция 0029 още не е пусната) просто оставя
@@ -385,14 +353,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (tm.data && tm.data.length) setTeam((tm.data as TeamMember[]).map((m) => ({ ...m, pay_rate: rateById[m.id] })));
         if (cm.data) setComments(cm.data as Comment[]);
         if (ld.data) setLeads(ld.data as Lead[]);
-        if (cmp.data) setCampaigns((cmp.data as (Omit<Campaign, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
-        if (intg.data && intg.data.length) setIntegrations(intg.data as Integration[]);
-        if (ad.data) setAdDrafts((ad.data as (Omit<AdDraft, "client"> & { client_id: string | null })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
-        if (sp.data) setSocialPosts(sp.data as SocialPost[]);
         if (ci.data) setContentItems((ci.data as (Omit<ContentItem, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (cyc.data) setCycles((cyc.data as (Omit<ContentCycle, "client"> & { client_id: string })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (cc.data) setClientConnections(cc.data as ClientConnection[]);
-        if (idv.data) setIdeas((idv.data as (Omit<Idea, "client"> & { client_id: string | null })[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
         if (apv.data) setApprovals(apv.data as Approval[]);
         if (vm.data) setVideoMetrics(vm.data as VideoMetric[]);
         if (bk.data) setBookings(bk.data as ShootBooking[]);
@@ -767,98 +730,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setModal(null);
   }, [leads, clients, currentUser.initials, startCycle, logActivity]);
 
-  // ---- Campaigns ----
-  const addCampaign = useCallback((f: CampaignForm) => {
-    const base = f.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "campaign";
-    setCampaigns((list) => {
-      const id = list.some((c) => c.id === base) ? base + "-" + (Date.now() % 10000) : base;
-      const row = { id, name: f.name, client_id: f.client, status: f.status, channel: f.channel, budget: f.budget, starts: f.starts, ends: f.ends };
-      sb()?.from("campaigns").insert(row).then(({ error }) => error && console.error("[BrandMotion] addCampaign failed:", error));
-      return [...list, { id, name: f.name, client: f.client, status: f.status, channel: f.channel, budget: f.budget, starts: f.starts, ends: f.ends }];
-    });
-    logActivity(`стартира кампания ${f.name}`, "admin");
-    setModal(null);
-  }, [logActivity]);
-
-  const updateCampaign = useCallback((id: string, f: CampaignForm) => {
-    const patch = { name: f.name, client_id: f.client, status: f.status, channel: f.channel, budget: f.budget, starts: f.starts, ends: f.ends };
-    setCampaigns((list) => list.map((c) => (c.id === id ? { ...c, name: f.name, client: f.client, status: f.status, channel: f.channel, budget: f.budget, starts: f.starts, ends: f.ends } : c)));
-    sb()?.from("campaigns").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateCampaign failed:", error));
-    setModal(null);
-  }, []);
-
-  const deleteCampaign = useCallback((id: string) => {
-    setCampaigns((list) => list.filter((c) => c.id !== id));
-    sb()?.from("campaigns").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteCampaign failed:", error));
-    setModal(null);
-  }, []);
-
-  // ---- Phase 5: integrations ----
-  const toggleIntegration = useCallback((provider: Provider) => {
-    let nowConnected = false;
-    setIntegrations((list) => list.map((i) => {
-      if (i.provider !== provider) return i;
-      nowConnected = !i.connected;
-      return { ...i, connected: nowConnected, account_label: nowConnected ? "Demo account" : "" };
-    }));
-    sb()?.from("integrations").update({ connected: nowConnected, account_label: nowConnected ? "Demo account" : "", updated_at: new Date().toISOString() }).eq("provider", provider).then(({ error }) => error && console.error("[BrandMotion] toggleIntegration failed:", error));
-  }, []);
-
-  const addAdDraft = useCallback((f: AdDraftForm) => {
-    const row = { id: "ad-" + Date.now(), client_id: f.client || null, name: f.name, objective: f.objective, budget: f.budget, audience: f.audience, primary_text: f.primary_text, headline: f.headline, status: "draft" as const };
-    setAdDrafts((list) => [{ id: row.id, client: row.client_id, name: f.name, objective: f.objective, budget: f.budget, audience: f.audience, primary_text: f.primary_text, headline: f.headline, status: "draft" }, ...list]);
-    sb()?.from("ad_drafts").insert(row).then(({ error }) => error && console.error("[BrandMotion] addAdDraft failed:", error));
-    logActivity(`създаде рекламна чернова ${f.name}`, "admin");
-    setModal(null);
-  }, [logActivity]);
-
-  const updateAdDraft = useCallback((id: string, f: AdDraftForm) => {
-    const patch = { client_id: f.client || null, name: f.name, objective: f.objective, budget: f.budget, audience: f.audience, primary_text: f.primary_text, headline: f.headline };
-    setAdDrafts((list) => list.map((a) => (a.id === id ? { ...a, client: f.client || null, name: f.name, objective: f.objective, budget: f.budget, audience: f.audience, primary_text: f.primary_text, headline: f.headline } : a)));
-    sb()?.from("ad_drafts").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateAdDraft failed:", error));
-    setModal(null);
-  }, []);
-
-  const deleteAdDraft = useCallback((id: string) => {
-    setAdDrafts((list) => list.filter((a) => a.id !== id));
-    sb()?.from("ad_drafts").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteAdDraft failed:", error));
-    setModal(null);
-  }, []);
-
-  const publishAd = useCallback((id: string) => {
-    // SIMULATED: a real publish calls the Meta Marketing API server-side with the
-    // connected account's access token. Here we just flip status to 'published'.
-    let name = "";
-    setAdDrafts((list) => list.map((a) => { if (a.id === id) name = a.name; return a.id === id ? { ...a, status: "published" } : a; }));
-    sb()?.from("ad_drafts").update({ status: "published" }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] publishAd failed:", error));
-    if (name) logActivity(`публикува реклама ${name} в Meta`, "admin");
-    setModal(null);
-  }, [logActivity]);
-
-  const addSocialPost = useCallback((f: SocialPostForm, status: "draft" | "scheduled") => {
-    const row = { id: "sp-" + Date.now(), caption: f.caption, media_url: f.media_url, platforms: f.platforms, scheduled_for: f.scheduled_for, status };
-    setSocialPosts((list) => [{ ...row }, ...list]);
-    sb()?.from("social_posts").insert(row).then(({ error }) => error && console.error("[BrandMotion] addSocialPost failed:", error));
-    logActivity(status === "scheduled" ? `насрочи публикация за ${f.platforms.join(", ")}` : "запази чернова на публикация");
-  }, [logActivity]);
-
-  const updateSocialPost = useCallback((id: string, f: SocialPostForm) => {
-    setSocialPosts((list) => list.map((p) => (p.id === id ? { ...p, ...f } : p)));
-    sb()?.from("social_posts").update({ caption: f.caption, media_url: f.media_url, platforms: f.platforms, scheduled_for: f.scheduled_for }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateSocialPost failed:", error));
-  }, []);
-
-  const deleteSocialPost = useCallback((id: string) => {
-    setSocialPosts((list) => list.filter((p) => p.id !== id));
-    sb()?.from("social_posts").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteSocialPost failed:", error));
-  }, []);
-
-  const publishSocialPost = useCallback((id: string) => {
-    // SIMULATED: a real publish uploads media + posts via each platform's API.
-    let plats: string[] = [];
-    setSocialPosts((list) => list.map((p) => { if (p.id === id) plats = p.platforms; return p.id === id ? { ...p, status: "published" } : p; }));
-    sb()?.from("social_posts").update({ status: "published" }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] publishSocialPost failed:", error));
-    logActivity(`публикува в ${plats.join(", ")}`);
-  }, [logActivity]);
 
   // ---- Production → team task board bridge ----
   // Every video keeps ONE live task on the board. Moving the card between
@@ -975,66 +846,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setModal(null);
   }, [clients, team, currentUser.initials, advanceCycle, syncStageTask, logActivity]);
 
-  // ---- Idea Bank ----
-  const addIdea = useCallback((f: IdeaForm) => {
-    const row = { id: "id-" + Date.now(), client_id: f.client || null, title: f.title, description: f.description, hook: f.hook, source: f.source, status: "backlog" as IdeaStatus, votes: 0, created_by: currentUser.initials };
-    setIdeas((list) => [{ id: row.id, client: row.client_id, title: f.title, description: f.description, hook: f.hook, source: f.source, status: "backlog", votes: 0, created_by: currentUser.initials }, ...list]);
-    sb()?.from("ideas").insert(row).then(({ error }) => error && console.error("[BrandMotion] addIdea failed:", error));
-    logActivity(`добави идея „${f.title}“`);
-    setModal(null);
-  }, [currentUser.initials, logActivity]);
-
-  const updateIdea = useCallback((id: string, f: IdeaForm) => {
-    const patch = { client_id: f.client || null, title: f.title, description: f.description, hook: f.hook, source: f.source };
-    setIdeas((list) => list.map((i) => (i.id === id ? { ...i, client: f.client || null, title: f.title, description: f.description, hook: f.hook, source: f.source } : i)));
-    sb()?.from("ideas").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateIdea failed:", error));
-    setModal(null);
-  }, []);
-
-  const deleteIdea = useCallback((id: string) => {
-    setIdeas((list) => list.filter((i) => i.id !== id));
-    sb()?.from("ideas").delete().eq("id", id).then(({ error }) => error && console.error("[BrandMotion] deleteIdea failed:", error));
-    setModal(null);
-  }, []);
-
-  const voteIdea = useCallback((id: string, delta: number) => {
-    let votes = 0;
-    setIdeas((list) => list.map((i) => { if (i.id !== id) return i; votes = Math.max(0, (i.votes || 0) + delta); return { ...i, votes }; }));
-    sb()?.from("ideas").update({ votes }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] voteIdea failed:", error));
-  }, []);
-
-  const setIdeaStatus = useCallback((id: string, status: IdeaStatus) => {
-    setIdeas((list) => list.map((i) => (i.id === id ? { ...i, status } : i)));
-    sb()?.from("ideas").update({ status }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] setIdeaStatus failed:", error));
-  }, []);
-
-  // Promote an idea into production: create a content_item carrying the hook
-  // over, and mark the idea as promoted. The card lands at 'strategy'.
-  const promoteIdea = useCallback((id: string) => {
-    const idea = ideas.find((i) => i.id === id);
-    if (!idea) return;
-    const clientId = idea.client || clients[0]?.id;
-    if (!clientId) return;
-    const client = clients.find((c) => c.id === clientId);
-    const stages = defaultStages(team, client?.editor || "", currentUser.initials, "reel");
-    const row = { id: "ct-" + Date.now(), client_id: clientId, date: null as string | null, type: "reel" as ContentType, title: idea.title, notes: idea.description, script: "", hook: idea.hook, hook_type: "", cta: "", caption: "", published: false, current_stage: "strategy", stages };
-    const { client_id: rowClient, ...rest } = row;
-    setContentItems((list) => [...list, { ...rest, client: rowClient }]);
-    sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] promoteIdea insert failed:", error));
-    syncStageTask(row.id, idea.title, clientId, "strategy", stages.find((s) => s.key === "strategy")?.assignee || "");
-    setIdeaStatus(id, "promoted");
-    logActivity(`промотира идея „${idea.title}“ в продукция`);
-  }, [ideas, clients, team, currentUser.initials, setIdeaStatus, syncStageTask, logActivity]);
-
-  // Bulk-insert AI-generated ideas (source='ai', status='backlog').
-  const addAiIdeas = useCallback((clientId: string, list: { title: string; description: string; hook: string }[]) => {
-    if (!list.length) return;
-    const base = Date.now();
-    const rows = list.map((x, i) => ({ id: `id-${base}-${i}`, client_id: clientId || null, title: x.title, description: x.description, hook: x.hook, source: "ai" as const, status: "backlog" as IdeaStatus, votes: 0, created_by: currentUser.initials }));
-    setIdeas((prev) => [...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id })), ...prev]);
-    sb()?.from("ideas").insert(rows).then(({ error }) => error && console.error("[BrandMotion] addAiIdeas failed:", error));
-    logActivity(`генерира ${list.length} AI идеи`);
-  }, [currentUser.initials, logActivity]);
 
   // ---- Client approval (magic link) ----
   // Creates a pending approval whose id doubles as the unguessable token in
@@ -1426,7 +1237,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // The clients THIS user is allowed to see — drives every client dropdown and
   // the calendar/production/ideas filtering.
   const me = team.find((m) => m.initials === currentUser.initials);
-  const visibleClients = visibleClientsFor(currentUser.level, me?.client_ids, clients);
+  // Архивираните не се предлагат за избор никъде (падащи менюта, бордове).
+  // Анализите четат `clients` направо, за да не изчезне миналият им приход.
+  const visibleClients = visibleClientsFor(currentUser.level, me?.client_ids, activeClients(clients));
 
   const updateContentItem = useCallback((id: string, f: ContentItemForm) => {
     const date = f.date || null;
@@ -1515,16 +1328,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setModal(null);
   }, [clients, logActivity, notifyError]);
 
+  // АРХИВИРА, не трие (0048). Триенето каскадно отнасяше фактурите — платена
+  // фактура е исторически факт и не бива да изчезва, защото клиентът си е тръгнал.
   const deleteClient = useCallback((id: string) => {
     const name = clients.find((c) => c.id === id)?.name || id;
-    setClients((list) => list.filter((c) => c.id !== id));
-    setInvoices((list) => list.filter((iv) => iv.client !== id));
-    setTasks((list) => list.filter((t) => t.client !== id));
-    sb()?.from("clients").delete().eq("id", id).then(({ error }) => {
-      if (error) { console.error("[BrandMotion] deleteClient failed:", error.message || error); notifyError(`Клиентът не се изтри: ${error.message || "неизвестна грешка"}`); }
+    const now = new Date().toISOString();
+    setClients((list) => list.map((c) => (c.id === id ? { ...c, archived_at: now } : c)));
+    sb()?.rpc("bm_archive_client", { p_client: id, p_archived: true }).then(({ error }) => {
+      if (error) {
+        console.error("[BrandMotion] archiveClient failed:", error);
+        notifyError(`Клиентът не се архивира: ${error.message || "неизвестна грешка"}`);
+        setClients((list) => list.map((c) => (c.id === id ? { ...c, archived_at: null } : c)));
+      }
     });
-    logActivity(`изтри клиент ${name}`, "admin");
+    logActivity(`архивира клиент ${name}`, "admin");
     setModal(null);
+  }, [clients, logActivity, notifyError]);
+
+  const restoreClient = useCallback((id: string) => {
+    const name = clients.find((c) => c.id === id)?.name || id;
+    setClients((list) => list.map((c) => (c.id === id ? { ...c, archived_at: null } : c)));
+    sb()?.rpc("bm_archive_client", { p_client: id, p_archived: false }).then(({ error }) => {
+      if (error) { console.error("[BrandMotion] restoreClient failed:", error); notifyError(`Клиентът не се върна: ${error.message}`); }
+    });
+    logActivity(`върна клиент ${name} от архива`, "admin");
   }, [clients, logActivity, notifyError]);
 
   // ---- Invoices ----
@@ -1701,6 +1528,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // realtime каналът така или иначе донася истината след миг.
   // ==========================================================================
 
+  const refetchPay = useCallback(async () => {
+    const client = sb();
+    if (!client) return;
+    const [ve, pp, wo, wpk] = await Promise.all([
+      client.from("v_earning_full").select("*"),
+      client.from("v_package_progress").select("*"),
+      client.from("v_worker_owed").select("*").order("owed", { ascending: false }),
+      client.from("worker_packages").select("*"),
+    ]);
+    if (ve.data) setVideoEarnings(ve.data as VideoEarning[]);
+    if (pp.data) setPackageProgress(pp.data as PackageProgress[]);
+    if (wo.data) setWorkerOwed(wo.data as WorkerOwed[]);
+    if (wpk.data) setWorkerPackages(wpk.data as WorkerPackage[]);
+  }, []);
+
+  // Обща обвивка: извикай RPC, покажи грешката на екрана, презареди.
+  const payRpc = useCallback((fn: string, args: Record<string, unknown>, failMsg: string, done?: () => void) => {
+    const client = sb();
+    if (!client) return;
+    client.rpc(fn, args).then(({ error }) => {
+      if (error) { console.error(`[BrandMotion] ${fn} failed:`, error); notifyError(`${failMsg}: ${error.message}`); return; }
+      done?.();
+      void refetchPay();
+    });
+  }, [notifyError, refetchPay]);
+
   // Ръчна сума на конкретно видео. Заключва се — тарифата вече не я пипа.
   const setVideoPrice = useCallback((earningId: number, price: number) => {
     const p = Math.round((price || 0) * 100) / 100;
@@ -1739,12 +1592,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setVideoEarnings((list) => list.map((e) => (earningIds.includes(e.id) ? { ...e, payout_id: payoutId } : e)));
       setWorkerPackages((list) => list.map((w) => (packageIds.includes(w.id) ? { ...w, payout_id: payoutId, status: "paid" as const } : w)));
       setPayouts((list) => [{ id: payoutId, profile_id: profileId, amount: total, method: method ?? null, reference: reference ?? null, paid_at: new Date().toISOString() }, ...list]);
+      void refetchPay();
       if (person) {
         notify(person.initials, `Плащане към теб: €${total.toLocaleString("bg-BG")} за ${earningIds.length + packageIds.length} позиции`, { entity_type: "pay", entity_id: person.initials });
         logActivity(`плати €${total.toLocaleString("bg-BG")} на ${person.name}`, "admin");
       }
     });
-  }, [team, videoEarnings, workerPackages, notify, notifyError, logActivity]);
+  }, [team, videoEarnings, workerPackages, notify, notifyError, logActivity, refetchPay]);
 
   // Всичко дължимо на един човек наведнъж.
   const payAllFor = useCallback((profileId: string, method?: string, reference?: string) => {
@@ -1761,35 +1615,75 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setVideoEarnings((list) => list.map((e) => (e.payout_id === payoutId ? { ...e, payout_id: null } : e)));
       setWorkerPackages((list) => list.map((w) => (w.payout_id === payoutId ? { ...w, payout_id: null, status: "completed" as const } : w)));
       setPayouts((list) => list.map((p) => (p.id === payoutId ? { ...p, voided_at: new Date().toISOString() } : p)));
+      void refetchPay();
       logActivity("отмени плащане", "admin");
     });
-  }, [notifyError, logActivity]);
+  }, [notifyError, logActivity, refetchPay]);
 
   // Пакет: N видеа за X€ — поема наличните незаплатени начисления на човека.
-  const createPackage = useCallback((profileId: string, target: number, total: number, label?: string, roleKey?: string | null, clientId?: string | null) => {
-    sb()?.rpc("bm_create_package", {
+  const createPackage = useCallback((profileId: string, target: number, total: number, label?: string,
+      roleKey?: string | null, clientId?: string | null, basePrice?: number | null, bonusPerVideo?: number) => {
+    payRpc("bm_create_package", {
       p_profile: profileId, p_target: target, p_total: Math.round((total || 0) * 100) / 100,
       p_label: label ?? "", p_role: roleKey ?? null, p_client: clientId ?? null,
-    }).then(({ error }) => {
-      if (error) { console.error("[BrandMotion] createPackage failed:", error); notifyError("Пакетът не се запази: " + error.message); return; }
-      logActivity(`създаде пакет ${target} видеа за €${total}`, "admin");
+      p_base: basePrice ?? null, p_bonus: Math.round((bonusPerVideo || 0) * 100) / 100,
+    }, "Пакетът не се запази", () => logActivity(`създаде пакет ${target} видеа за €${total}`, "admin"));
+  }, [payRpc, logActivity]);
+
+  // ==========================================================================
+  // СРОКОВЕ И ПРЕМИИ (0050)
+  // Всичко, което мени пари или решава премия, чака отговор от базата и
+  // презарежда. Оптимистично се пипат само козметичните полета.
+  // ==========================================================================
+  // Работникът казва „готово“ — часовникът спира тук, колкото и да се бави прегледът.
+  const submitVideo = useCallback((earningId: number) => {
+    payRpc("bm_submit_video", { p_earning: earningId }, "Маркирането не се запази");
+  }, [payRpc]);
+
+  const acceptVideo = useCallback((earningId: number) => {
+    const e = videoEarnings.find((x) => x.id === earningId);
+    payRpc("bm_accept_video", { p_earning: earningId }, "Приемането не се запази", () => {
+      if (e?.initials) notify(e.initials, `„${e.title}“ е прието`, { entity_type: "pay", entity_id: e.initials });
     });
-  }, [notifyError, logActivity]);
+  }, [videoEarnings, payRpc, notify]);
+
+  const returnVideo = useCallback((earningId: number, reason: string) => {
+    const e = videoEarnings.find((x) => x.id === earningId);
+    payRpc("bm_return_video", { p_earning: earningId, p_reason: reason }, "Връщането не се запази", () => {
+      if (e?.initials) notify(e.initials, `„${e.title}“ е върнато за преправка: ${reason}`, { entity_type: "task", entity_id: e.content_item_id || "" });
+    });
+  }, [videoEarnings, payRpc, notify]);
+
+  const grantBonus = useCallback((earningId: number, reason: string) => {
+    payRpc("bm_grant_bonus", { p_earning: earningId, p_reason: reason }, "Премията не се запази");
+  }, [payRpc]);
+
+  const waiveBonus = useCallback((earningId: number, reason?: string) => {
+    payRpc("bm_waive_bonus", { p_earning: earningId, p_reason: reason ?? null }, "Промяната не се запази");
+  }, [payRpc]);
+
+  const setDue = useCallback((earningId: number, due: string) => {
+    payRpc("bm_set_due", { p_earning: earningId, p_due: due }, "Срокът не се запази");
+  }, [payRpc]);
+
+  const setBonus = useCallback((earningId: number, amount: number) => {
+    payRpc("bm_set_bonus", { p_earning: earningId, p_amount: Math.round((amount || 0) * 100) / 100 }, "Премията не се запази");
+  }, [payRpc]);
 
   const value: Store = {
-    clients, invoices, tasks, payRoles, videoEarnings, workerPackages, payouts, videoRates, activity, notifications, team, comments, leads, campaigns, integrations, adDrafts, socialPosts, contentItems, cycles, ideas, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
-    addIdea, updateIdea, deleteIdea, voteIdea, setIdeaStatus, promoteIdea, addAiIdeas, requestApproval, requestBatchApproval, dismissSuggestion,
-    addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle, addCampaign, updateCampaign, deleteCampaign,
-    toggleIntegration, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, addSocialPost, updateSocialPost, deleteSocialPost, publishSocialPost,
+    clients, invoices, tasks, payRoles, videoEarnings, workerPackages, packageProgress, workerOwed, payouts, videoRates, activity, notifications, team, comments, leads, contentItems, cycles, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
+    requestApproval, requestBatchApproval, dismissSuggestion,
+    addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
     advanceStage, completeVideo, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
     bookings, addBooking, deleteBooking, approveBooking, declineBooking, getBookingFeedUrl,
     modal, openModal: setModal, closeModal: () => setModal(null),
-    addClient, updateClient, deleteClient,
+    addClient, updateClient, deleteClient, restoreClient,
     addInvoice, updateInvoice, deleteInvoice, markPaid,
     addTask, updateTask, deleteTask, moveTask, toggleDone, markWorkerPaid, setTaskPay, setMemberRate,
     setVideoPrice, setVideoRate, payVideos, payAllFor, undoPayout, createPackage,
+    submitVideo, acceptVideo, returnVideo, grantBonus, waiveBonus, setDue, setBonus,
   };
 
   return (

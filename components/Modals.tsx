@@ -7,8 +7,8 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { AD_OBJECTIVES, AD_OBJECTIVE_LABELS, CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, IDEA_SOURCES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
-import { clientSchema, taskSchema, invoiceSchema, leadSchema, campaignSchema, adDraftSchema, contentItemSchema, onboardSchema, cycleSchema, ideaSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type CampaignForm, type AdDraftForm, type ContentItemForm, type OnboardForm, type CycleForm, type IdeaForm } from "@/lib/schemas";
+import { CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, stageStatusMeta, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
+import { clientSchema, taskSchema, invoiceSchema, leadSchema, contentItemSchema, onboardSchema, cycleSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type ContentItemForm, type OnboardForm, type CycleForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 import { BrandSectionsView } from "./BrandTab";
 
@@ -51,14 +51,11 @@ export function Modals() {
   if (modal.kind === "task") return <TaskModal />;
   if (modal.kind === "lead") return <LeadModal />;
   if (modal.kind === "onboard") return <OnboardModal />;
-  if (modal.kind === "campaign") return <CampaignModal />;
-  if (modal.kind === "ad") return <AdModal />;
   if (modal.kind === "content") return <ContentModal />;
   if (modal.kind === "importScripts") return <ScriptImportModal />;
   if (modal.kind === "createPosts") return <PostsCreateModal />;
   if (modal.kind === "password") return <PasswordModal />;
   if (modal.kind === "cycle") return <CycleModal />;
-  if (modal.kind === "idea") return <IdeaModal />;
   if (modal.kind === "brand") return <BrandProfileModal />;
   if (modal.kind === "brandView") return <BrandViewModal />;
   return <InvoiceModal />;
@@ -492,134 +489,6 @@ function OnboardModal() {
   );
 }
 
-function CampaignModal() {
-  const { modal, closeModal, addCampaign, updateCampaign, deleteCampaign, openModal, currentUser, clients } = useStore();
-  const editing = modal?.kind === "campaign" && modal.mode === "edit" ? modal.campaign : null;
-  const presetClient = modal?.kind === "campaign" && modal.mode === "create" ? modal.clientId : undefined;
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CampaignForm>({
-    resolver: zodResolver(campaignSchema),
-    defaultValues: editing
-      ? { name: editing.name, client: editing.client, status: editing.status, channel: editing.channel, budget: editing.budget, starts: editing.starts, ends: editing.ends }
-      : { name: "", client: presetClient ?? clients[0]?.id ?? "", status: "planning", channel: "", budget: 0, starts: "", ends: "" },
-  });
-  const onSubmit = (f: CampaignForm) => (editing ? updateCampaign(editing.id, f) : addCampaign(f));
-
-  return (
-    <Shell title={editing ? "Редакция на кампания" : "Нова кампания"} onClose={closeModal}>
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-          <div className="bm-field"><label className="bm-label">Име на кампания</label><input className="bm-input" {...register("name")} placeholder="напр. Лятна разпродажба" /><Err msg={errors.name?.message} /></div>
-          <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
-            <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="planning">Планиране</option><option value="active">Активна</option><option value="paused">На пауза</option><option value="completed">Завършена</option></select></div>
-          </div>
-          <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Канал</label><input className="bm-input" {...register("channel")} placeholder="напр. Платени социални" /></div>
-            <div className="bm-field"><label className="bm-label">Бюджет (EUR)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
-          </div>
-          <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Започва</label><input className="bm-input" {...register("starts")} placeholder="напр. 1 юли" /></div>
-            <div className="bm-field"><label className="bm-label">Завършва</label><input className="bm-input" {...register("ends")} placeholder="напр. 31 авг." /></div>
-          </div>
-        </div>
-        <div className="bm-modal__footer" style={{ justifyContent: editing && currentUser.isAdmin ? "space-between" : "flex-end" }}>
-          {editing && currentUser.isAdmin && (
-            <button type="button" className="bm-btn bm-btn--ghost" onClick={() => openModal({ kind: "confirm", title: "Изтриване на кампания?", message: `Изтрий ${editing.name}? Действието е необратимо.`, confirmLabel: "Изтрий", onConfirm: () => deleteCampaign(editing.id) })}>Изтрий</button>
-          )}
-          <div style={{ display: "flex", gap: "var(--bm-space-3)" }}>
-            <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
-            <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>{editing ? "Запази" : "Създай кампания"}</button>
-          </div>
-        </div>
-      </form>
-    </Shell>
-  );
-}
-
-function AdModal() {
-  const { modal, closeModal, addAdDraft, updateAdDraft, deleteAdDraft, publishAd, openModal, currentUser, clients, integrations } = useStore();
-  const editing = modal?.kind === "ad" && modal.mode === "edit" ? modal.ad : null;
-  const metaConnected = integrations.find((i) => i.provider === "meta_ads")?.connected;
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<AdDraftForm>({
-    resolver: zodResolver(adDraftSchema),
-    defaultValues: editing
-      ? { name: editing.name, client: editing.client ?? "", objective: editing.objective, budget: editing.budget, audience: editing.audience, primary_text: editing.primary_text, headline: editing.headline }
-      : { name: "", client: clients[0]?.id ?? "", objective: "traffic", budget: 0, audience: "", primary_text: "", headline: "" },
-  });
-  const onSubmit = (f: AdDraftForm) => (editing ? updateAdDraft(editing.id, f) : addAdDraft(f));
-
-  return (
-    <Shell title={editing ? "Редакция на реклама" : "Нова реклама"} onClose={closeModal}>
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-          <div className="bm-field"><label className="bm-label">Име на кампания</label><input className="bm-input" {...register("name")} placeholder="напр. Лято — Привличане" /><Err msg={errors.name?.message} /></div>
-          <div className="bm-form-row bm-form-row--3">
-            <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-            <div className="bm-field"><label className="bm-label">Цел</label><select className="bm-select" {...register("objective")}>{AD_OBJECTIVES.map((o) => <option key={o} value={o}>{AD_OBJECTIVE_LABELS[o] || o}</option>)}</select></div>
-            <div className="bm-field"><label className="bm-label">Бюджет (EUR)</label><input className="bm-input" type="number" {...register("budget", { valueAsNumber: true })} /><Err msg={errors.budget?.message} /></div>
-          </div>
-          <div className="bm-field"><label className="bm-label">Аудитория</label><input className="bm-input" {...register("audience")} placeholder="напр. BG · 25-45 · купувачи" /></div>
-          <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("headline")} placeholder="Кратко заглавие" /></div>
-          <div className="bm-field"><label className="bm-label">Основен текст</label><textarea className="bm-textarea" {...register("primary_text")} placeholder="Основният рекламен текст…" /><Err msg={errors.primary_text?.message} /></div>
-          {editing && (
-            <div className={"bm-alert " + (metaConnected ? "bm-alert--info" : "bm-alert--warning")}>
-              {metaConnected ? "Meta акаунтът е свързан — публикуването е симулирано в тази версия." : "Свържи Meta акаунт в Интеграции, за да публикуваш."}
-            </div>
-          )}
-        </div>
-        <div className="bm-modal__footer" style={{ justifyContent: editing && currentUser.isAdmin ? "space-between" : "flex-end" }}>
-          {editing && currentUser.isAdmin && (
-            <button type="button" className="bm-btn bm-btn--ghost" onClick={() => openModal({ kind: "confirm", title: "Изтриване на реклама?", message: `Изтрий ${editing.name}? Действието е необратимо.`, confirmLabel: "Изтрий", onConfirm: () => deleteAdDraft(editing.id) })}>Изтрий</button>
-          )}
-          <div style={{ display: "flex", gap: "var(--bm-space-3)" }}>
-            <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
-            {editing && editing.status !== "published" && (
-              <button type="button" className="bm-btn bm-btn--primary" disabled={!metaConnected} title={metaConnected ? "" : "Първо свържи Meta"} onClick={() => publishAd(editing.id)}>Публикувай в Meta</button>
-            )}
-            <button type="submit" className="bm-btn bm-btn--secondary" disabled={isSubmitting}>{editing ? "Запази" : "Запази чернова"}</button>
-          </div>
-        </div>
-      </form>
-    </Shell>
-  );
-}
-
-function IdeaModal() {
-  const { modal, closeModal, addIdea, updateIdea, deleteIdea, openModal, currentUser, visibleClients: clients } = useStore();
-  const editing = modal?.kind === "idea" && modal.mode === "edit" ? modal.idea : null;
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<IdeaForm>({
-    resolver: zodResolver(ideaSchema),
-    defaultValues: editing
-      ? { client: editing.client ?? "", title: editing.title, description: editing.description, hook: editing.hook, source: editing.source }
-      : { client: "", title: "", description: "", hook: "", source: "team" },
-  });
-  const onSubmit = (f: IdeaForm) => (editing ? updateIdea(editing.id, f) : addIdea(f));
-
-  return (
-    <Shell title={editing ? "Редакция на идея" : "Нова идея"} onClose={closeModal}>
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-          <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. 3 грешки при избор на…" /><Err msg={errors.title?.message} /></div>
-          <div className="bm-form-row">
-            <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}><option value="">— обща идея —</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-            <div className="bm-field"><label className="bm-label">Източник</label><select className="bm-select" {...register("source")}>{IDEA_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
-          </div>
-          <div className="bm-field"><label className="bm-label">Кука (по избор)</label><input className="bm-input" {...register("hook")} placeholder="Първото изречение, което спира скрола…" /></div>
-          <div className="bm-field"><label className="bm-label">Описание</label><textarea className="bm-textarea" {...register("description")} placeholder="За какво е видеото, референции…" /></div>
-        </div>
-        <div className="bm-modal__footer" style={{ justifyContent: editing && currentUser.isAdmin ? "space-between" : "flex-end" }}>
-          {editing && currentUser.isAdmin && (
-            <button type="button" className="bm-btn bm-btn--ghost" onClick={() => openModal({ kind: "confirm", title: "Изтриване на идея?", message: `Изтрий „${editing.title}“? Действието е необратимо.`, confirmLabel: "Изтрий", onConfirm: () => deleteIdea(editing.id) })}>Изтрий</button>
-          )}
-          <div style={{ display: "flex", gap: "var(--bm-space-3)" }}>
-            <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
-            <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>{editing ? "Запази" : "Добави идея"}</button>
-          </div>
-        </div>
-      </form>
-    </Shell>
-  );
-}
 
 // Резултати от публикувано видео (гледания, харесвания…) — админът ги въвежда
 // ръчно или ги дърпа автоматично (/api/metrics/fetch, където платформата

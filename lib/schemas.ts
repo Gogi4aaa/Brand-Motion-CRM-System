@@ -38,15 +38,6 @@ export const taskSchema = z.object({
 });
 export type TaskForm = z.infer<typeof taskSchema>;
 
-export const ideaSchema = z.object({
-  client: z.string(), // '' = general idea
-  title: z.string().trim().min(1, "Заглавието е задължително"),
-  description: z.string().trim(),
-  hook: z.string().trim(),
-  source: z.enum(["team", "client_brief", "trend", "competitor", "ai"]),
-});
-export type IdeaForm = z.infer<typeof ideaSchema>;
-
 export const leadSchema = z.object({
   name: z.string().trim().min(1, "Deal name is required"),
   contact: z.string().trim(),
@@ -58,36 +49,6 @@ export const leadSchema = z.object({
   referred_by_name: z.string().trim(),      // свободно име на препоръчител
 });
 export type LeadForm = z.infer<typeof leadSchema>;
-
-export const campaignSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  client: z.string().min(1, "Pick a client"),
-  status: z.enum(["planning", "active", "paused", "completed"]),
-  channel: z.string().trim(),
-  budget: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),
-  starts: z.string().trim(),
-  ends: z.string().trim(),
-});
-export type CampaignForm = z.infer<typeof campaignSchema>;
-
-export const adDraftSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  client: z.string(),
-  objective: z.string(),
-  budget: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),
-  audience: z.string().trim(),
-  primary_text: z.string().trim().min(1, "Ad text is required"),
-  headline: z.string().trim(),
-});
-export type AdDraftForm = z.infer<typeof adDraftSchema>;
-
-export const socialPostSchema = z.object({
-  caption: z.string().trim().min(1, "Caption is required"),
-  media_url: z.string().trim(),
-  platforms: z.array(z.string()).min(1, "Pick at least one platform"),
-  scheduled_for: z.string().trim(),
-});
-export type SocialPostForm = z.infer<typeof socialPostSchema>;
 
 export const contentItemSchema = z.object({
   date: z.string(),

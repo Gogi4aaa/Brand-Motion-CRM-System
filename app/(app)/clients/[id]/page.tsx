@@ -23,7 +23,7 @@ function Kpi({ label, value }: { label: string; value: React.ReactNode }) {
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { clients, invoices, tasks, openModal, deleteClient, currentUser, team, clientConnections, setClientConnection } = useStore();
+  const { clients, invoices, tasks, openModal, deleteClient, restoreClient, currentUser, team, clientConnections, setClientConnection } = useStore();
   const [tab, setTab] = useState<"overview" | "brand" | "invoices" | "tasks">("overview");
 
   const byId = clientsById(clients);
@@ -54,22 +54,26 @@ export default function ClientDetailPage() {
         <span className={"bm-badge " + h.cls}>{h.label}</span>
         <Link href={`/calendar?client=${c.id}`} className="bm-btn bm-btn--secondary"><Icon name="calendar" size={16} /> Календар</Link>
         <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "client", mode: "edit", client: c })}>Редакция</button>
-        {currentUser.isAdmin && (
+        {currentUser.isAdmin && (c.archived_at ? (
+          <button className="bm-btn bm-btn--secondary" onClick={() => restoreClient(c.id)}>
+            Върни от архива
+          </button>
+        ) : (
           <button
             className="bm-btn bm-btn--ghost"
             onClick={() =>
               openModal({
                 kind: "confirm",
-                title: "Изтриване на клиент?",
-                message: `Това премахва ${c.name} и всички негови фактури и задачи. Действието е необратимо.`,
-                confirmLabel: "Изтрий",
+                title: "Архивиране на клиент?",
+                message: `${c.name} се скрива от списъците, но фактурите и историята му остават — за да не изчезне приходът от Анализи. Може да го върнеш по всяко време.`,
+                confirmLabel: "Архивирай",
                 onConfirm: () => { deleteClient(c.id); router.push("/clients"); },
               })
             }
           >
-            Изтрий
+            Архивирай
           </button>
-        )}
+        ))}
         <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "invoice", mode: "create", clientId: c.id })}><Icon name="plus" /> Нова фактура</button>
       </div>
 

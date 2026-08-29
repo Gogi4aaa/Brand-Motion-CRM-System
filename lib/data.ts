@@ -26,6 +26,7 @@ export interface Client {
   target_audience?: string;
   brand_assets_url?: string;
   created_at?: string;              // кога е добавен клиентът (за задържане)
+  archived_at?: string | null;      // архивиран: скрит от списъците, но историята му остава
   churned_at?: string | null;       // кога е напуснал (status="Churned")
 }
 export const clientStatusMeta = (s: ClientStatus) =>
@@ -162,21 +163,99 @@ export const STAGE_PAY_ROLE: Record<string, string> = {
 export const payRoleLabel = (roles: PayRole[], key: string) =>
   roles.find((r) => r.key === key)?.label || PAY_ROLES_FALLBACK.find((r) => r.key === key)?.label || key;
 
-// Един ред на (видео × човек × роля). `earned_at` != null означава ДЪЛЖИМО.
+// Жизненият цикъл на премията (0050). `granted`/`waived` са ръчни решения на
+// админа и нищо автоматично не ги пренаписва.
+export type BonusStatus = "none" | "pending" | "earned" | "missed" | "granted" | "waived";
+export type EarningStatus = "pending" | "owed" | "in_package" | "paid";
+export type Timeline = "прието" | "чака преглед" | "просрочено" | "изтича" | "в срок" | "без срок";
+
+// Един ред на (видео × човек × роля), както го дава `v_earning_full`.
+// `payable` е ЕДИНСТВЕНАТА истина за реда — фронтендът не го пресмята наново.
 export interface VideoEarning {
   id: number;
   content_item_id: string | null;   // null = видеото е изтрито, но парите се дължат
-  content_title: string;            // снимка на заглавието — оцелява изтриването
   legacy_item_id?: string | null;   // старият id на изтрито видео (пренос 0046)
+  title: string;                    // снимка на заглавието — оцелява изтриването
+  publish_on?: string | null;
   profile_id: string;
+  initials?: string;
+  worker_name?: string;
   role_key: string;
+  role_label?: string;
   client_id?: string | null;
+  client_name?: string | null;
   price: number;
   price_locked: boolean;      // ръчна сума — тарифата вече не я пипа
-  earned_at?: string | null;  // когато си свърши НЕГОВАТА част
   package_id?: number | null; // част от пакет → не е поотделно дължимо
-  payout_id?: string | null;  // платено
+  payout_id?: string | null;
+  // ---- срок и часовник (0050) ----
+  due_at?: string | null;
+  due_source?: "manual" | "calendar" | "handover" | null;
+  started_at?: string | null;
+  submitted_at?: string | null;   // работникът е казал „готово" — часовникът спира
+  accepted_at?: string | null;    // админът е приел
+  redos: number;
+  bonus_amount: number;
+  bonus_status: BonusStatus;
+  earned_at?: string | null;
+  note?: string | null;
+  // ---- изчислени от изгледа ----
+  status: EarningStatus;
+  payable: number;
+  bonus_at_risk: number;
+  days_late: number | null;   // отрицателно = подадено по-рано
+  timeline: Timeline;
   created_at?: string;
+}
+
+// Редът на човека — `v_worker_owed`. `owed` НЕ се пресмята във фронтенда.
+export interface WorkerOwed {
+  profile_id: string;
+  initials: string;
+  name: string;
+  owed: number;
+  owed_videos: number;      // сумата на видеата извън пакет
+  owed_packages: number;    // завършените неплатени пакети + техните премии
+  pending: number;
+  upcoming: number;
+  paid_total: number;
+  bonus_earned_total: number;
+  bonus_at_risk: number;
+  videos_done: number;
+  late_videos: number;
+  owed_count: number;
+}
+
+// Пакетът с прогреса си — `v_package_progress`.
+export interface PackageProgress {
+  id: number;
+  profile_id: string;
+  initials: string;
+  worker_name: string;
+  label: string;
+  client_id?: string | null;
+  client_name?: string | null;
+  role_key?: string | null;
+  status: PackageStatus;
+  payout_mode: "on_completion" | "monthly_partial";
+  videos_total: number;
+  price_total: number;
+  base_price?: number | null;
+  bonus_per_video: number;
+  started_on: string;
+  completed_at?: string | null;
+  payout_id?: string | null;
+  price_per_video: number;
+  used: number;
+  on_time: number;
+  late: number;
+  bonus_earned: number;
+  bonus_at_risk: number;
+  bonus_missed: number;
+  payable_now: number;
+  payable_max: number;
+  saved_vs_base?: number | null;
+  days_running: number;
 }
 
 // N видеа за X€. Плаща се НАВЕДНЪЖ при завършване; видеата вътре само
@@ -269,6 +348,156 @@ export function owedFor(
   };
 }
 
+// ---- Рентабилност по клиент ------------------------------------------------
+// Данните ги има от 0046 (video_earnings.client_id), просто никъде не се
+// събираха. `cost` е НАЧИСЛЕНОТО (заработено + предстоящо) — то е реалният
+// ангажимент към екипа, независимо дали е преведено.
+export interface ClientPnl {
+  id: string; name: string; status: ClientStatus;
+  revenue: number;          // събрано от платени фактури
+  cost: number;             // начислено към екипа за този клиент
+  earnedCost: number;       // от него — вече заработено (дължимо или платено)
+  profit: number;
+  margin: number | null;    // null = няма приход, маржът е безсмислен
+  videos: number;
+  costPerVideo: number;
+  revenuePerVideo: number | null;
+}
+
+export function clientPnlRows(
+  clients: Client[], invoices: Invoice[], earnings: VideoEarning[]
+): ClientPnl[] {
+  return clients
+    .map((c) => {
+      const mine = earnings.filter((e) => e.client_id === c.id);
+      const revenue = clientLtv(invoices, c.id);
+      const cost = mine.reduce((a, e) => a + (e.price || 0), 0);
+      const earnedCost = mine.filter((e) => e.earned_at).reduce((a, e) => a + (e.price || 0), 0);
+      const videos = new Set(mine.map((e) => e.content_item_id || e.legacy_item_id)).size;
+      const profit = revenue - cost;
+      return {
+        id: c.id, name: c.name, status: c.status,
+        revenue, cost, earnedCost, profit,
+        margin: revenue > 0 ? (profit / revenue) * 100 : null,
+        videos,
+        costPerVideo: videos ? cost / videos : 0,
+        revenuePerVideo: videos && revenue > 0 ? revenue / videos : null,
+      };
+    })
+    .filter((r) => r.revenue > 0 || r.cost > 0)
+    .sort((a, b) => b.profit - a.profit);
+}
+
+// ---- Серии по месеци за екрана Анализи ------------------------------------
+// Приходът е КАСОВ (платени фактури по paid_at). Разходът за екипа е НАЧИСЛЕН
+// (video_earnings по earned_at) — това е реалната цена на свършената работа.
+// Касовият разход (payouts) стои отделно, защото преводът може да е много
+// по-късно от работата и смесването на двете крие маржа.
+export interface MonthPnl {
+  key: string; label: string;
+  revenue: number;      // събрано по paid_at
+  cost: number;         // начислено към екипа по earned_at
+  paidOut: number;      // реално преведено по payouts.paid_at
+  profit: number;       // revenue − cost
+  videos: number;       // завършени видеа
+  costPerVideo: number;
+}
+
+export function monthlyPnl(
+  invoices: Invoice[], earnings: VideoEarning[], payouts: Payout[], months: number | null
+): MonthPnl[] {
+  // Обхватът тръгва от най-ранното събитие, за да няма празни месеци отпред.
+  const stamps = [
+    ...invoices.filter((i) => i.status === "paid").map((i) => parseDay(i.paid_at)),
+    ...earnings.filter((e) => e.earned_at).map((e) => parseDay(e.earned_at)),
+    ...payouts.filter((p) => !p.voided_at).map((p) => parseDay(p.paid_at)),
+  ].filter((t) => !Number.isNaN(t));
+  if (!stamps.length) return [];
+
+  const now = new Date();
+  const first = new Date(Math.min(...stamps));
+  let start = new Date(first.getFullYear(), first.getMonth(), 1);
+  if (months) {
+    const limit = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+    if (limit > start) start = limit;
+  }
+
+  const out: MonthPnl[] = [];
+  for (let d = new Date(start); d <= now; d.setMonth(d.getMonth() + 1)) {
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const revenue = invoices
+      .filter((i) => i.status === "paid" && inMonthKey(i.paid_at, key))
+      .reduce((a, i) => a + (i.amount || 0), 0);
+    const inMonth = earnings.filter((e) => e.earned_at && inMonthKey(e.earned_at, key));
+    const cost = inMonth.reduce((a, e) => a + (e.price || 0), 0);
+    const videos = new Set(inMonth.map((e) => e.content_item_id || e.legacy_item_id)).size;
+    const paidOut = payouts
+      .filter((p) => !p.voided_at && inMonthKey(p.paid_at, key))
+      .reduce((a, p) => a + (p.amount || 0), 0);
+    out.push({ key, label: monthLabel(key), revenue, cost, paidOut,
+      profit: revenue - cost, videos, costPerVideo: videos ? cost / videos : 0 });
+  }
+  return out;
+}
+
+// ---- Несъбрано по давност ---------------------------------------------------
+// `due` беше свободен текст до 0044 — редовете без разпознаваема дата отиват в
+// собствена кофа, вместо да се преструваме, че падежът е известен.
+export interface AgingBucket { label: string; amount: number; count: number; tone: "ok" | "warn" | "bad" | "muted" }
+
+export function receivablesAging(invoices: Invoice[]): AgingBucket[] {
+  const open = invoices.filter((i) => i.status === "pending" || i.status === "overdue");
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const b: Record<string, AgingBucket> = {
+    fresh:   { label: "Не е паднала", amount: 0, count: 0, tone: "ok" },
+    d30:     { label: "До 30 дни",    amount: 0, count: 0, tone: "warn" },
+    d60:     { label: "30–60 дни",    amount: 0, count: 0, tone: "warn" },
+    d60plus: { label: "Над 60 дни",   amount: 0, count: 0, tone: "bad" },
+    unknown: { label: "Без падеж",    amount: 0, count: 0, tone: "muted" },
+  };
+  for (const i of open) {
+    const t = parseDay(i.due);
+    let k: keyof typeof b;
+    if (Number.isNaN(t)) k = "unknown";
+    else {
+      const days = Math.floor((today.getTime() - t) / 86400000);
+      k = days <= 0 ? "fresh" : days <= 30 ? "d30" : days <= 60 ? "d60" : "d60plus";
+    }
+    b[k].amount += i.amount || 0;
+    b[k].count += 1;
+  }
+  return Object.values(b).filter((x) => x.count > 0);
+}
+
+// ---- Къде отиват парите -----------------------------------------------------
+// Реални преводи по човек, ако има; иначе начисленото — за да не е празен блокът,
+// докато още нищо не е платено.
+export interface SpendRow { label: string; amount: number; accrued: boolean }
+
+export function spendBreakdown(
+  payouts: Payout[], earnings: VideoEarning[], team: TeamMember[], monthKeyOrNull: string | null
+): { rows: SpendRow[]; accrued: boolean; total: number } {
+  const nameOf = (id: string) => team.find((m) => m.id === id)?.name || "—";
+  const paid = payouts.filter((p) => !p.voided_at && inMonthKey(p.paid_at, monthKeyOrNull));
+  const src = paid.length
+    ? Object.entries(paid.reduce<Record<string, number>>((acc, p) => {
+        acc[p.profile_id] = (acc[p.profile_id] || 0) + (p.amount || 0); return acc; }, {}))
+    : Object.entries(earnings
+        .filter((e) => e.earned_at && inMonthKey(e.earned_at, monthKeyOrNull))
+        .reduce<Record<string, number>>((acc, e) => {
+          acc[e.profile_id] = (acc[e.profile_id] || 0) + (e.price || 0); return acc; }, {}));
+  const rows = src
+    .map(([id, amount]) => ({ label: nameOf(id), amount, accrued: !paid.length }))
+    .filter((r) => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  return { rows, accrued: !paid.length, total: rows.reduce((a, r) => a + r.amount, 0) };
+}
+
+// Общият ангажимент към екипа: начислено, но още непреведено. Разликата между
+// него и payoutCost е причината „Чиста печалба" да изглежда по-голяма, отколкото е.
+export const accruedLiability = (earnings: VideoEarning[]) =>
+  earnings.filter((e) => !e.payout_id).reduce((a, e) => a + (e.price || 0), 0);
+
 // Текущата тарифа на човек за роля (+ по избор клиент) — огледало на
 // `bm_video_price` от 0046, за да се покаже чипът, без да се пита базата.
 // Приоритет на съвпадението: клиент(4) + роля(2); при равенство — по-новият ред.
@@ -304,27 +533,6 @@ export const payoutCost = (payouts: Payout[], monthKeyOrNull: string | null) =>
 // Weekly capacity per person (hours) — over this is flagged as overloaded.
 export const WEEKLY_CAPACITY_HOURS = 40;
 
-export type CampaignStatus = "planning" | "active" | "paused" | "completed";
-
-export interface Campaign {
-  id: string;
-  name: string;
-  client: string; // client id
-  status: CampaignStatus;
-  channel: string;
-  budget: number;
-  starts: string;
-  ends: string;
-}
-
-export const campaignStatusMeta = (s: CampaignStatus) =>
-  ({
-    planning: { cls: "bm-badge--info", label: "Планиране" },
-    active: { cls: "bm-badge--success", label: "Активна" },
-    paused: { cls: "bm-badge--warning", label: "На пауза" },
-    completed: { cls: "bm-badge--neutral", label: "Завършена" },
-  }[s]);
-
 // ---- Access levels (RBAC) ----
 export type AccessRole = "admin" | "manager" | "worker";
 
@@ -342,16 +550,13 @@ export const ROLE_LABELS: Record<AccessRole, string> = {
 //   worker  — only their own work (tasks/content/production).
 export const NAV_ACCESS: Record<string, AccessRole[]> = {
   dashboard: ["admin", "manager", "worker"],
-  ideas: ["admin"], // в разработка — само админът я вижда засега
 
   tasks: ["admin", "manager", "worker"],
   calendar: ["admin", "manager", "worker"],
   production: ["admin", "manager", "worker"],
   clients: ["admin"],
   pipeline: ["admin"],
-  campaigns: ["admin"],
   analytics: ["admin"],
-  social: ["admin", "manager"],
   team: ["admin", "manager"],
   invoices: ["admin"],
   payouts: ["admin", "manager", "worker"], // всеки вижда САМО своите (RLS); админ вижда всички
@@ -566,6 +771,10 @@ export const revenueByMonth = (invoices: Invoice[], n = 12) => {
   return out;
 };
 
+// Клиентите за избор и списъци — без архивираните. Анализите НЕ ползват това:
+// там архивираните трябва да се броят, иначе миналият приход изчезва от отчета.
+export const activeClients = (list: Client[]) => list.filter((c) => !c.archived_at);
+
 export const clientsById = (list: Client[]) =>
   Object.fromEntries(list.map((c) => [c.id, c])) as Record<string, Client>;
 
@@ -649,8 +858,6 @@ export const leadSourceMeta = (s: LeadSource | undefined) =>
 
 export const seedLeads: Lead[] = [];
 
-export const seedCampaigns: Campaign[] = [];
-
 // ---- Per-client channel connections (organic posting) ----
 export type ChannelProvider = "meta" | "tiktok";
 export interface ClientConnection {
@@ -663,74 +870,6 @@ export const CLIENT_CHANNELS: { id: ChannelProvider; name: string; blurb: string
   { id: "meta", name: "Facebook & Instagram", blurb: "Постове и рийлс към Страницата и Instagram на клиента (органик)." },
   { id: "tiktok", name: "TikTok", blurb: "Качване и насрочване на видеа към TikTok акаунта на клиента." },
 ];
-
-// ---- Phase 5: integrations ----
-export type Provider = "meta_ads" | "instagram" | "tiktok" | "youtube";
-
-export interface Integration {
-  provider: Provider;
-  connected: boolean;
-  account_label: string;
-}
-
-export const PROVIDERS: { id: Provider; name: string; blurb: string }[] = [
-  { id: "meta_ads", name: "Meta Ads", blurb: "Създаване и публикуване на реклами към Meta бизнес акаунтите на клиентите." },
-  { id: "instagram", name: "Instagram", blurb: "Публикуване на рийлс и постове към свързани Instagram акаунти." },
-  { id: "tiktok", name: "TikTok", blurb: "Качване и насрочване на видео в TikTok." },
-  { id: "youtube", name: "YouTube", blurb: "Публикуване на видео и shorts в YouTube канали." },
-];
-
-export type AdStatus = "draft" | "ready" | "published";
-export interface AdDraft {
-  id: string;
-  client: string | null;
-  name: string;
-  objective: string;
-  budget: number;
-  audience: string;
-  primary_text: string;
-  headline: string;
-  status: AdStatus;
-}
-export const AD_OBJECTIVES = ["awareness", "traffic", "engagement", "leads", "sales"];
-export const AD_OBJECTIVE_LABELS: Record<string, string> = {
-  awareness: "Разпознаваемост",
-  traffic: "Трафик",
-  engagement: "Ангажираност",
-  leads: "Запитвания",
-  sales: "Продажби",
-};
-export const adStatusMeta = (s: AdStatus) =>
-  ({
-    draft: { cls: "bm-badge--neutral", label: "Чернова" },
-    ready: { cls: "bm-badge--info", label: "Готова" },
-    published: { cls: "bm-badge--success", label: "Публикувана" },
-  }[s]);
-
-export type PostStatus = "draft" | "scheduled" | "published";
-export interface SocialPost {
-  id: string;
-  caption: string;
-  media_url: string;
-  platforms: string[];
-  scheduled_for: string;
-  status: PostStatus;
-}
-export const SOCIAL_PLATFORMS: { id: string; name: string }[] = [
-  { id: "instagram", name: "Instagram" },
-  { id: "tiktok", name: "TikTok" },
-  { id: "youtube", name: "YouTube" },
-];
-export const postStatusMeta = (s: PostStatus) =>
-  ({
-    draft: { cls: "bm-badge--neutral", label: "Чернова" },
-    scheduled: { cls: "bm-badge--warning", label: "Насрочен" },
-    published: { cls: "bm-badge--success", label: "Публикуван" },
-  }[s]);
-
-export const seedIntegrations: Integration[] = PROVIDERS.map((p) => ({ provider: p.id, connected: false, account_label: "" }));
-export const seedAdDrafts: AdDraft[] = [];
-export const seedSocialPosts: SocialPost[] = [];
 
 // ---- Content calendar ----
 export type ContentType = "promo" | "info" | "reel" | "project" | "post";
@@ -787,48 +926,6 @@ export const contentTypeMeta = (t: ContentType) =>
   CONTENT_TYPES.find((c) => c.id === t) || CONTENT_TYPES[0];
 
 export const seedContentItems: ContentItem[] = [];
-
-// ---- Idea Bank ----
-export type IdeaSource = "team" | "client_brief" | "trend" | "competitor" | "ai";
-export type IdeaStatus = "backlog" | "approved" | "promoted" | "archived";
-
-export interface Idea {
-  id: string;
-  client: string | null; // client id (null = general)
-  title: string;
-  description: string;
-  hook: string;
-  source: IdeaSource;
-  status: IdeaStatus;
-  votes: number;
-  created_by: string;
-  created_at?: string;
-}
-
-export const IDEA_SOURCES: { id: IdeaSource; label: string }[] = [
-  { id: "team", label: "Екип" },
-  { id: "client_brief", label: "Бриф на клиента" },
-  { id: "trend", label: "Тренд" },
-  { id: "competitor", label: "Конкурент" },
-  { id: "ai", label: "AI" },
-];
-export const ideaSourceMeta = (s: IdeaSource) =>
-  ({
-    team: { cls: "bm-badge--info", label: "Екип" },
-    client_brief: { cls: "bm-badge--neutral", label: "Бриф" },
-    trend: { cls: "bm-badge--warning", label: "Тренд" },
-    competitor: { cls: "bm-badge--danger", label: "Конкурент" },
-    ai: { cls: "bm-badge--success", label: "AI" },
-  }[s]);
-export const ideaStatusMeta = (s: IdeaStatus) =>
-  ({
-    backlog: { cls: "bm-badge--neutral", label: "Бек-лог" },
-    approved: { cls: "bm-badge--info", label: "Одобрена" },
-    promoted: { cls: "bm-badge--success", label: "В продукция" },
-    archived: { cls: "bm-badge--neutral", label: "Архив" },
-  }[s]);
-
-export const seedIdeas: Idea[] = [];
 
 // ---- Hook structure (short-form video scripts) ----
 export const HOOK_TYPES: { id: string; label: string }[] = [

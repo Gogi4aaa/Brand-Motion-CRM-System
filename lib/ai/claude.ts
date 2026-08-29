@@ -1,5 +1,5 @@
 // Server-side Claude client — the single entry point for all AI calls
-// (scripts, ideas, captions). Never import from client components; only
+// (scripts, captions). Never import from client components; only
 // Route Handlers under app/api/ai/* use this. Key lives in ANTHROPIC_API_KEY.
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -65,31 +65,6 @@ ${brandBlock(input)}
     system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: user }],
     output_config: { format: zodOutputFormat(ScriptResult) },
-  });
-  if (!msg.parsed_output) throw new Error("AI не върна валиден резултат");
-  return msg.parsed_output;
-}
-
-// ---- Idea generation ----
-const IdeaItem = z.object({
-  title: z.string(),
-  description: z.string().describe("1-2 изречения какво представлява видеото"),
-  hook: z.string().describe("Предложена кука"),
-  category: z.enum(["educational", "entertaining", "inspirational", "promotional"]),
-});
-const IdeasResult = z.object({ ideas: z.array(IdeaItem).min(5).max(15) });
-export type IdeasResultT = z.infer<typeof IdeasResult>;
-
-export async function generateIdeas(input: { count?: number; extraContext?: string } & BrandContext): Promise<IdeasResultT> {
-  const user = `Генерирай ${input.count || 10} идеи за кратки видеа, разпределени между категориите educational / entertaining / inspirational / promotional.
-${brandBlock(input)}
-${input.extraContext ? `Допълнителен контекст: ${input.extraContext}` : ""}`;
-  const msg = await client().messages.parse({
-    model: MODEL,
-    max_tokens: 4096,
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: user }],
-    output_config: { format: zodOutputFormat(IdeasResult) },
   });
   if (!msg.parsed_output) throw new Error("AI не върна валиден резултат");
   return msg.parsed_output;

@@ -12,6 +12,7 @@ export default function ClientsPage() {
   const { clients, openModal, getPortalLink } = useStore();
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Магическият линк, който собственикът на бизнеса отваря без логин —
@@ -25,24 +26,34 @@ export default function ClientsPage() {
     setCopiedId(clientId);
     setTimeout(() => setCopiedId((id) => (id === clientId ? null : id)), 2500);
   };
-  const totalMrr = clients.reduce((a, b) => a + b.mrr, 0);
+  // Архивираните са скрити по подразбиране, но не са изтрити — виждат се с
+  // превключвателя и продължават да носят приходната си история в Анализи.
+  const active = clients.filter((c) => !c.archived_at);
+  const archived = clients.filter((c) => c.archived_at);
+  const totalMrr = active.reduce((a, b) => a + b.mrr, 0);
   const term = q.trim().toLowerCase();
+  const pool = showArchived ? clients : active;
   const shown = term
-    ? clients.filter((c) => c.name.toLowerCase().includes(term) || c.industry.toLowerCase().includes(term))
-    : clients;
+    ? pool.filter((c) => c.name.toLowerCase().includes(term) || c.industry.toLowerCase().includes(term))
+    : pool;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <div>
           <h1>Клиенти</h1>
-          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{clients.length} акаунта · <Money>{fmtK(totalMrr)}</Money> месечно</p>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{active.length} акаунта · <Money>{fmtK(totalMrr)}</Money> месечно{archived.length ? ` · ${archived.length} в архив` : ""}</p>
         </div>
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center" }}>
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
             <span style={{ position: "absolute", left: 12, color: "var(--bm-text-subtle)", display: "flex" }}><Icon name="search" size={16} /></span>
             <input className="bm-input" style={{ paddingLeft: 36, width: "100%", maxWidth: 220 }} placeholder="Търси клиенти…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
+          {archived.length > 0 && (
+            <button className="bm-btn bm-btn--ghost bm-btn--sm" onClick={() => setShowArchived((v) => !v)}>
+              {showArchived ? "Скрий архива" : `Архив (${archived.length})`}
+            </button>
+          )}
           <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "client", mode: "create" })}><Icon name="plus" /> Добави клиент</button>
         </div>
       </div>
@@ -64,6 +75,7 @@ export default function ClientsPage() {
                   <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{c.industry}</div>
                 </div>
                 <span className={"bm-badge " + h.cls}>{h.label}</span>
+                {c.archived_at && <span className="bm-badge bm-badge--neutral">архивиран</span>}
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
                 <div>

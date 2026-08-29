@@ -11,16 +11,13 @@ import { Money } from "@/components/MoneyLock";
 const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Табло", icon: "dashboard" },
   { href: "/tasks", label: "Задачи", icon: "tasks" },
-  { href: "/ideas", label: "Идеи", icon: "comment" },
   { href: "/pipeline", label: "Продажби", icon: "pipeline" },
   { href: "/clients", label: "Клиенти", icon: "clients" },
   { href: "/production", label: "Продукция", icon: "production" },
   { href: "/bookings", label: "Снимачни дни", icon: "calendar" },
-  { href: "/campaigns", label: "Кампании", icon: "campaign" },
   { href: "/invoices", label: "Фактури", icon: "invoices" },
   { href: "/payouts", label: "Възнаграждения", icon: "invoices" },
   { href: "/analytics", label: "Анализи", icon: "analytics" },
-  { href: "/social", label: "Социални", icon: "video" },
   { href: "/team", label: "Екип", icon: "team" },
 ];
 
