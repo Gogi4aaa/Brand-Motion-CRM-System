@@ -274,6 +274,9 @@ a {
     color: var(--bm-text-muted); font-weight: 700; cursor: pointer;
   }
   .bm-card-move button:disabled { opacity: .35; }
+  /* Продукция ползва списък вместо стрелки: етапите са седем и съседната
+     стъпка не е достатъчна — на десктоп влаченето стига до всяка колона. */
+  .bm-card-move .bm-select { flex: 1; min-height: 32px; font-size: var(--bm-text-xs); }
 }
 
 /* Dashboard sections: on phones the card header becomes a tap target that

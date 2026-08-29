@@ -136,6 +136,33 @@ export default function ProductionPage() {
                       {cur?.assignee && <Avatar initials={cur.assignee} style={{ width: 22, height: 22, fontSize: 9 }} />}
                     </span>
                   </div>
+
+                  {/* Телефон: HTML5 влаченето не работи на тъч, а работниците
+                      гледат борда от телефон. Списъкът дава СЪЩОТО, което дава
+                      влаченето на десктоп — местене в кой да е етап, не само
+                      съседния. Правата са същите: чий е текущият етап (canMove),
+                      а „Приключени“ иска и права за публикуване. */}
+                  {!selectMode && canMove && (
+                    <div className="bm-card-move">
+                      <select
+                        className="bm-select"
+                        value={it.current_stage || stagesSet[0].key}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const to = e.target.value;
+                          if (to === "__done__") completeVideo(it.id);
+                          else if (to !== (it.current_stage || stagesSet[0].key)) advanceStage(it.id, to);
+                        }}
+                        aria-label="Премести видеото в друг етап"
+                      >
+                        {stagesSet.map((x) => (
+                          <option key={x.key} value={x.key}>{x.label}</option>
+                        ))}
+                        {canPublish && <option value="__done__">✓ Приключени</option>}
+                      </select>
+                    </div>
+                  )}
                 </div>
               );
             })}
