@@ -1,0 +1,109 @@
+/* CRM v2 — „Днес“, месеци, пакети, съветник за нов клиент.
+   Само токени от tokens.css, за да работи в светла и тъмна тема. */
+
+/* ---- „Чака теб“ ---- */
+.crm-nudges { display: flex; flex-direction: column; }
+.crm-nudge {
+  display: flex; align-items: center; gap: var(--bm-space-4);
+  padding: var(--bm-space-4) var(--bm-space-5);
+  border-top: 1px solid var(--bm-border);
+}
+.crm-nudge:first-child { border-top: none; }
+.crm-nudge__badge {
+  flex: 0 0 46px; height: 46px; border-radius: var(--bm-radius-md);
+  display: grid; place-items: center; font-weight: 800; font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.crm-nudge__badge--danger { background: var(--bm-danger-50); color: var(--bm-danger-700); }
+.crm-nudge__badge--warn { background: var(--bm-warning-50); color: var(--bm-warning-700); }
+.crm-nudge__badge--info { background: var(--bm-info-50); color: var(--bm-info-700); }
+.crm-nudge__body { flex: 1; min-width: 0; }
+.crm-nudge__title { font-weight: 600; }
+.crm-nudge__detail { color: var(--bm-text-subtle); font-size: var(--bm-text-sm); margin-top: 2px; }
+.crm-nudge__actions { display: flex; gap: var(--bm-space-2); flex-shrink: 0; }
+@media (max-width: 640px) {
+  .crm-nudge { flex-wrap: wrap; padding: var(--bm-space-3) var(--bm-space-4); }
+  .crm-nudge__body { flex-basis: calc(100% - 62px); }
+  .crm-nudge__actions { width: 100%; justify-content: flex-end; }
+}
+
+/* ---- Месечен прогрес ---- */
+.crm-month-row { display: flex; flex-direction: column; gap: 6px; }
+.crm-month-row__top { display: flex; justify-content: space-between; gap: var(--bm-space-3); font-size: var(--bm-text-sm); }
+.crm-bar { height: 7px; border-radius: 99px; background: var(--bm-surface-2); overflow: hidden; }
+.crm-bar > span { display: block; height: 100%; border-radius: 99px; background: var(--bm-primary); }
+.crm-bar--ok > span { background: var(--bm-success-500); }
+.crm-bar--behind > span { background: var(--bm-warning-500); }
+
+/* ---- Месечни карти на клиента ---- */
+.crm-months { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--bm-space-3); }
+.crm-month {
+  border: 1px solid var(--bm-border); border-radius: var(--bm-radius-lg);
+  padding: var(--bm-space-4); background: var(--bm-surface); cursor: pointer; text-align: left;
+  font: inherit; color: inherit; display: flex; flex-direction: column; gap: 4px; min-height: 44px;
+}
+.crm-month:hover { border-color: var(--bm-border-strong); }
+.crm-month[aria-pressed="true"] { border: 2px solid var(--bm-primary); padding: calc(var(--bm-space-4) - 1px); }
+.crm-month--empty .crm-month__n { color: var(--bm-danger-600); }
+.crm-month__label { font-size: var(--bm-text-xs); font-weight: 700; letter-spacing: var(--bm-tracking-wide); text-transform: uppercase; color: var(--bm-text-subtle); }
+.crm-month__n { font-size: var(--bm-text-2xl); font-weight: 800; letter-spacing: var(--bm-tracking-tight); font-variant-numeric: tabular-nums; }
+.crm-month__n small { font-size: var(--bm-text-sm); font-weight: 600; color: var(--bm-text-subtle); }
+.crm-month__sub { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); }
+
+.crm-vid { display: flex; align-items: center; gap: var(--bm-space-3); padding: var(--bm-space-2) 0; border-top: 1px solid var(--bm-border); font-size: var(--bm-text-sm); }
+.crm-vid__date { color: var(--bm-text-subtle); width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* ---- Таблица по месеци ---- */
+.crm-mtable td.crm-zero { color: var(--bm-danger-600); font-weight: 700; }
+.crm-mtable td.crm-n { font-weight: 700; font-variant-numeric: tabular-nums; }
+.crm-mtable td.crm-na { color: var(--bm-text-subtle); }
+.crm-mtable th.crm-now, .crm-mtable td.crm-now { background: var(--bm-surface-2); }
+
+/* ---- Чипове (платформи, услуги, шаблони) ---- */
+.crm-chips { display: flex; flex-wrap: wrap; gap: var(--bm-space-2); }
+.crm-chip {
+  min-height: 40px; padding: 0 14px; border-radius: var(--bm-radius-full);
+  border: 1px solid var(--bm-border-strong); background: var(--bm-surface); color: var(--bm-text-muted);
+  font: 600 var(--bm-text-sm) var(--bm-font-sans); cursor: pointer;
+}
+.crm-chip[aria-pressed="true"] { background: var(--bm-primary); border-color: var(--bm-primary); color: var(--bm-text-on-brand); }
+
+.crm-stepper { display: flex; align-items: center; gap: var(--bm-space-3); }
+.crm-stepper button { width: 44px; height: 44px; border-radius: var(--bm-radius-md); border: 1px solid var(--bm-border-strong); background: var(--bm-surface-2); color: var(--bm-text); font-size: 20px; font-weight: 700; cursor: pointer; }
+.crm-stepper output { min-width: 48px; text-align: center; font-size: var(--bm-text-2xl); font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* ---- Съветник ---- */
+.crm-wizard { max-width: 720px !important; }
+.crm-steps { display: flex; gap: var(--bm-space-2); padding: var(--bm-space-3) var(--bm-space-6); border-bottom: 1px solid var(--bm-border); overflow-x: auto; }
+.crm-step {
+  display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: var(--bm-radius-full);
+  border: 1px solid var(--bm-border); background: transparent; color: var(--bm-text-subtle); font: 600 var(--bm-text-xs) var(--bm-font-sans); cursor: pointer; white-space: nowrap;
+}
+.crm-step[aria-current="step"] { background: var(--bm-primary); border-color: var(--bm-primary); color: var(--bm-text-on-brand); }
+.crm-step--done { color: var(--bm-success-600); border-color: var(--bm-success-500); }
+.crm-summary { display: grid; grid-template-columns: 1fr 1fr; gap: var(--bm-space-2) var(--bm-space-4); font-size: var(--bm-text-sm); }
+.crm-summary dt { color: var(--bm-text-subtle); }
+.crm-summary dd { margin: 0; font-weight: 600; }
+.crm-check { display: flex; align-items: center; gap: var(--bm-space-3); min-height: 44px; font-size: var(--bm-text-sm); cursor: pointer; }
+.crm-check input { width: 20px; height: 20px; accent-color: var(--bm-primary); }
+
+/* ---- Път на клиента ---- */
+.crm-path { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--bm-space-2); }
+.crm-path__step { padding: var(--bm-space-3); border-radius: var(--bm-radius-md); background: var(--bm-surface-2); color: var(--bm-text-subtle); font-size: var(--bm-text-xs); font-weight: 600; }
+.crm-path__step--done { background: var(--bm-success-50); color: var(--bm-success-700); }
+.crm-path__step--now { background: var(--bm-warning-50); color: var(--bm-warning-700); }
+
+/* ---- Продукция: клиентите като бутони над дъската ---- */
+.pf-clients { display: flex; gap: var(--bm-space-2); overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.pf-clients::-webkit-scrollbar { display: none; }
+.pf-clients .crm-chip { flex-shrink: 0; min-height: 36px; }
+/* Заглавията на колоните се пренасят на нов ред, вместо да се режат („Заснема…“). */
+.pf-col-title { font-weight: 600; font-size: var(--bm-text-sm); line-height: 1.2; overflow-wrap: anywhere; }
+/* Телефон: етапите един под друг (без свайпване настрани), празните се скриват,
+   така всички видеа се виждат с обикновен скрол надолу. */
+@media (max-width: 768px) {
+  .bm-board.bm-board--6, .bm-board.bm-board--7 { grid-auto-flow: row; grid-template-columns: 1fr; grid-auto-columns: auto; overflow-x: visible; align-items: start; }
+  .bm-board--6 .bm-kcol, .bm-board--7 .bm-kcol { min-height: 0; }
+  .bm-board--6 .bm-kcol--empty, .bm-board--7 .bm-kcol--empty { display: none; }
+  .pf-fs__board .bm-board.bm-board--6, .pf-fs__board .bm-board.bm-board--7 { grid-auto-flow: row; }
+}

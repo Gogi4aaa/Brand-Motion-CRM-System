@@ -7,10 +7,13 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { useStore } from "./store";
 import { CommentThread } from "./CommentThread";
-import { CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, CONTENT_PACKAGES, ONBOARDING_TASKS, packageItemCount, monthKey, HOOK_TYPES, approvalStatusMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
+import { CONTENT_TYPES, POST_STAGES, stagesForType, defaultStages, VIDEO_PACKAGES, ONBOARDING_TASKS, monthKey, monthLabel, HOOK_TYPES, approvalStatusMeta, clientReviewMeta, visibleClientsFor, driveThumbnailSrc, PIPELINE_STAGES, LEAD_SOURCES, todayISO, type ContentType } from "@/lib/data";
 import { clientSchema, taskSchema, invoiceSchema, leadSchema, contentItemSchema, onboardSchema, cycleSchema, brandAnswersSchema, type ClientForm, type TaskForm, type InvoiceForm, type LeadForm, type ContentItemForm, type OnboardForm, type CycleForm } from "@/lib/schemas";
 import { BRAND_SECTIONS, hasBrandValue, type BrandAnswers, type BrandColor, type BrandLink, type BrandQuestion } from "@/lib/brand";
 import { BrandSectionsView } from "./BrandTab";
+import { NewClientWizard, PackageModal } from "./NewClientWizard";
+import { VideoFlow } from "./VideoFlow";
+import { BrandImportBox, BrandImportSummary, type BrandImportData } from "./BrandImport";
 
 function Shell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -47,6 +50,9 @@ export function Modals() {
     );
   }
 
+  if (modal.kind === "newClient") return <NewClientWizard />;
+  if (modal.kind === "package") return <PackageModal key={modal.clientId} clientId={modal.clientId} />;
+  if (modal.kind === "client" && modal.mode === "create") return <NewClientWizard />;
   if (modal.kind === "client") return <ClientModal />;
   if (modal.kind === "task") return <TaskModal />;
   if (modal.kind === "lead") return <LeadModal />;
@@ -85,6 +91,19 @@ function BrandViewModal() {
   );
 }
 
+// Няколко цвята от поставен текст: „#0090B5 син, #111 тъмен“ → всеки с името си.
+function pastedColors(text: string): BrandColor[] {
+  const out: BrandColor[] = [];
+  for (const part of text.split(/(?=#[0-9a-fA-F]{3,6}\b)/)) {
+    const m = part.match(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/);
+    if (!m) continue;
+    const hex = (m[0].length === 4 ? "#" + [...m[0].slice(1)].map((c) => c + c).join("") : m[0]).toLowerCase();
+    const name = part.replace(m[0], "").replace(/[()\[\],;:—–-]/g, " ").replace(/\s+/g, " ").trim();
+    if (!out.some((c) => c.hex === hex)) out.push(name ? { hex, name: name.slice(0, 80) } : { hex });
+  }
+  return out;
+}
+
 // Бранд въпросникът на клиент: ръчна редакция на всички секции + импорт на
 // попълнения .docx шаблон (/api/import/brand разчита отговорите по номера).
 // Полетата са динамични по BRAND_SECTIONS — затова useState, не react-hook-form.
@@ -94,40 +113,25 @@ function BrandProfileModal() {
   const clientName = clients.find((c) => c.id === clientId)?.name || "";
   const existing = brandProfiles.find((p) => p.client_id === clientId)?.answers;
   const [answers, setAnswers] = useState<BrandAnswers>(() => ({ ...(existing || {}) }));
-  const [file, setFile] = useState<File | null>(null);
-  const [pendingImport, setPendingImport] = useState<{ answers: BrandAnswers; missing: number[] } | null>(null);
-  const [importNote, setImportNote] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [pendingImport, setPendingImport] = useState<BrandImportData | null>(null);
+  const [lastImport, setLastImport] = useState<BrandImportData | null>(null);
   const [error, setError] = useState("");
 
   const set = (key: string, v: BrandAnswers[string]) => setAnswers((a) => ({ ...a, [key]: v }));
   const hasFilled = Object.values(answers).some((v) => hasBrandValue(v));
 
-  const applyImport = (imp: { answers: BrandAnswers; missing: number[] }) => {
+  // Импортът допълва: полетата, които ги няма във файла, остават както са.
+  const applyImport = (imp: BrandImportData) => {
     setAnswers((a) => ({ ...a, ...imp.answers }));
-    const found = Object.keys(imp.answers).length;
-    setImportNote(`Разчетени ${found} отговора.` + (imp.missing.length ? ` Без отговор останаха въпроси № ${imp.missing.join(", ")} — попълни ги ръчно, ако имаш информацията.` : ""));
+    setLastImport(imp);
     setPendingImport(null);
+    setError("");
   };
-
-  const analyze = async () => {
-    if (!file) { setError("Избери .docx файл."); return; }
-    setLoading(true); setError(""); setImportNote("");
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/import/brand", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || "Грешка при анализа."); return; }
-      const imp = { answers: data.answers as BrandAnswers, missing: (data.missing || []) as number[] };
-      // Ако вече има попълнени полета, импортът ги презаписва — искаме явно „да".
-      if (hasFilled) setPendingImport(imp);
-      else applyImport(imp);
-    } catch {
-      setError("Файлът не можа да бъде качен.");
-    } finally {
-      setLoading(false);
-    }
+  // Ако файлът би сменил вече попълнено поле — питаме; иначе прилагаме направо.
+  const onParsed = (imp: BrandImportData) => {
+    const clash = Object.keys(imp.answers).some((k) => hasBrandValue(answers[k]) && JSON.stringify(answers[k]) !== JSON.stringify(imp.answers[k]));
+    if (hasFilled && clash) setPendingImport(imp);
+    else applyImport(imp);
   };
 
   const save = () => {
@@ -151,7 +155,27 @@ function BrandProfileModal() {
             <button type="button" className="bm-btn bm-btn--ghost bm-btn--icon" onClick={() => set(q.key, list.filter((_, j) => j !== i))}><Icon name="close" size={14} /></button>
           </div>
         ))}
-        <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => set(q.key, [...list, { hex: "#0090B5" }])}>+ Цвят</button>
+        <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap", alignItems: "center" }}>
+          <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => set(q.key, [...list, { hex: "#0090B5" }])}>+ Цвят</button>
+          <input className="bm-input" style={{ flex: 1, minWidth: 200 }} aria-label="Постави няколко цвята наведнъж" placeholder="или постави няколко наведнъж: #0090B5 син, #111827 тъмен"
+            onPaste={(e) => {
+              const found = pastedColors(e.clipboardData.getData("text"));
+              if (!found.length) return;
+              e.preventDefault();
+              const have = new Set(list.map((c) => c.hex.toLowerCase()));
+              set(q.key, [...list, ...found.filter((c) => !have.has(c.hex))]);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              const el = e.currentTarget;
+              const found = pastedColors(el.value);
+              if (!found.length) return;
+              const have = new Set(list.map((c) => c.hex.toLowerCase()));
+              set(q.key, [...list, ...found.filter((c) => !have.has(c.hex))]);
+              el.value = "";
+            }} />
+        </div>
       </div>
     );
   };
@@ -194,23 +218,16 @@ function BrandProfileModal() {
   return (
     <Shell title={`Бранд профил — ${clientName}`} onClose={closeModal}>
       <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)", maxHeight: "65dvh", overflowY: "auto" }}>
-        <div className="bm-card" style={{ background: "var(--bm-surface-2)" }}>
-          <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
-            <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>Импорт от попълнения въпросник (.docx)</div>
-            <div style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center", flexWrap: "wrap" }}>
-              <input className="bm-input" style={{ flex: 1, minWidth: 220 }} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              <button type="button" className="bm-btn bm-btn--secondary" onClick={analyze} disabled={loading}>{loading ? "Разчитам…" : "Разчети файла"}</button>
-            </div>
-            {pendingImport && (
-              <div className="bm-alert bm-alert--danger" style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ flex: 1 }}>Импортът ще презапише вече попълнените полета с това от файла.</span>
-                <button type="button" className="bm-btn bm-btn--danger bm-btn--sm" onClick={() => applyImport(pendingImport)}>Презапиши</button>
-                <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => setPendingImport(null)}>Отказ</button>
-              </div>
-            )}
-            {importNote && <div className="bm-alert bm-alert--info">{importNote}</div>}
+        <BrandImportBox clientName={clientName} onParsed={onParsed} />
+        {pendingImport && (
+          <div className="bm-alert bm-alert--danger" style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ flex: 1 }}>Файлът съдържа {Object.keys(pendingImport.answers).length} полета и ще смени част от вече попълнените. Останалите не се пипат.</span>
+            <button type="button" className="bm-btn bm-btn--danger bm-btn--sm" onClick={() => applyImport(pendingImport)}>Смени ги</button>
+            <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => setPendingImport(null)}>Отказ</button>
           </div>
-        </div>
+        )}
+        {lastImport && <BrandImportSummary data={lastImport} />}
+        {lastImport && <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Прегледай полетата по-долу и натисни „Запази профила“.</div>}
 
         {BRAND_SECTIONS.map((s) => (
           <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
@@ -235,18 +252,29 @@ function BrandProfileModal() {
 }
 
 function CycleModal() {
-  const { closeModal, clients, startCycle } = useStore();
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CycleForm>({
+  const { closeModal, clients: allClients, cycles, startCycle } = useStore();
+  const clients = allClients.filter((c) => !c.archived_at);
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<CycleForm>({
     resolver: zodResolver(cycleSchema),
-    defaultValues: { client: clients[0]?.id ?? "", month: monthKey(), target_count: 8 },
+    // Бройката идва от договореното с клиента, не от твърда стойност.
+    defaultValues: { client: clients[0]?.id ?? "", month: monthKey(), target_count: clients[0]?.videos_per_month || 0 },
   });
   const onSubmit = (f: CycleForm) => startCycle(f.client, f.month, f.target_count);
+  const selClient = watch("client");
+  const selMonth = watch("month");
+  const existing = cycles.find((c) => c.client === selClient && c.month === selMonth);
+  // Смяна на клиент/месец → показваме вече зададената бройка за месеца, иначе договорената.
+  useEffect(() => {
+    const cy = cycles.find((c) => c.client === selClient && c.month === selMonth);
+    setValue("target_count", cy?.target_count || clients.find((c) => c.id === selClient)?.videos_per_month || 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selClient, selMonth]);
 
   return (
     <Shell title="Нов месечен цикъл" onClose={closeModal}>
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="bm-modal__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-          <div className="bm-alert bm-alert--info">Това ще започне цикъл за месеца и ще уведоми стратега да започне идеи и сценарии.</div>
+          <div className="bm-alert bm-alert--info">{existing ? `За ${monthLabel(selMonth)} вече има цикъл — ще се смени само бройката му.` : "Това ще започне цикъл за месеца и ще уведоми стратега да започне идеи и сценарии."}</div>
           <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Месец</label><input className="bm-input" type="month" {...register("month")} /><Err msg={errors.month?.message} /></div>
@@ -255,7 +283,7 @@ function CycleModal() {
         </div>
         <div className="bm-modal__footer">
           <button type="button" className="bm-btn bm-btn--secondary" onClick={closeModal}>Отказ</button>
-          <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>Започни цикъл</button>
+          <button type="submit" className="bm-btn bm-btn--primary" disabled={isSubmitting}>{existing ? "Запази бройката" : "Започни цикъл"}</button>
         </div>
       </form>
     </Shell>
@@ -269,8 +297,8 @@ function ClientModal() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ClientForm>({
     resolver: zodResolver(clientSchema),
     defaultValues: editing
-      ? { name: editing.name, industry: editing.industry, status: editing.status, mrr: editing.mrr, owner: editing.owner, health: editing.health, note: editing.note, editor: editing.editor ?? "", analysis_status: editing.analysis_status ?? "not_started", analysis_notes: editing.analysis_notes ?? "", brand_voice: editing.brand_voice ?? "", target_audience: editing.target_audience ?? "", brand_assets_url: editing.brand_assets_url ?? "" }
-      : { name: "", industry: "", status: "Active", mrr: 0, owner: currentUser.initials, health: "good", note: "", editor: "", analysis_status: "not_started", analysis_notes: "", brand_voice: "", target_audience: "", brand_assets_url: "" },
+      ? { name: editing.name, industry: editing.industry, status: editing.status, mrr: editing.mrr, owner: editing.owner, health: editing.health, note: editing.note, editor: editing.editor ?? "", analysis_status: editing.analysis_status ?? "not_started", analysis_notes: editing.analysis_notes ?? "", brand_voice: editing.brand_voice ?? "", target_audience: editing.target_audience ?? "", brand_assets_url: editing.brand_assets_url ?? "", videos_per_month: editing.videos_per_month ?? 0, payment_terms_days: editing.payment_terms_days ?? 7, billing_email: editing.billing_email ?? "" }
+      : { name: "", industry: "", status: "Active", mrr: 0, owner: currentUser.initials, health: "good", note: "", editor: "", analysis_status: "not_started", analysis_notes: "", brand_voice: "", target_audience: "", brand_assets_url: "", videos_per_month: 0, payment_terms_days: 7, billing_email: "" },
   });
   const onSubmit = (f: ClientForm) => (editing ? updateClient(editing.id, f) : addClient(f));
 
@@ -282,6 +310,11 @@ function ClientModal() {
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Индустрия</label><input className="bm-input" {...register("industry")} placeholder="напр. Търговия" /><Err msg={errors.industry?.message} /></div>
             <div className="bm-field"><label className="bm-label">Месечно (EUR)</label><input className="bm-input" type="number" {...register("mrr", { valueAsNumber: true })} /><Err msg={errors.mrr?.message} /></div>
+          </div>
+          <div className="bm-form-row bm-form-row--3">
+            <div className="bm-field"><label className="bm-label">Видеа на месец</label><input className="bm-input" type="number" min={0} list="bm-video-packages" {...register("videos_per_month", { valueAsNumber: true })} /><datalist id="bm-video-packages">{VIDEO_PACKAGES.map((n) => <option key={n} value={n} />)}</datalist><span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Колкото е договорено с този клиент. Важи от текущия месец; 0 = не е зададена.</span><Err msg={errors.videos_per_month?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Срок за плащане (дни)</label><input className="bm-input" type="number" min={0} {...register("payment_terms_days", { valueAsNumber: true })} /><span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Дни след издаване на фактурата.</span><Err msg={errors.payment_terms_days?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Имейл за фактури</label><input className="bm-input" type="email" {...register("billing_email")} placeholder="office@firma.bg" /><Err msg={errors.billing_email?.message} /></div>
           </div>
           <div className="bm-form-row bm-form-row--3">
             <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="Active">Активен</option><option value="At risk">Риск</option><option value="Onboarding">Включване</option><option value="Churned">Напуснал</option></select></div>
@@ -400,8 +433,8 @@ function LeadModal() {
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<LeadForm>({
     resolver: zodResolver(leadSchema),
     defaultValues: editing
-      ? { name: editing.name, contact: editing.contact, value: editing.value, stage: editing.stage, owner: editing.owner, source: editing.source ?? "cold", referred_by_client_id: editing.referred_by_client_id ?? "", referred_by_name: editing.referred_by_name ?? "" }
-      : { name: "", contact: "", value: 0, stage: "new", owner: currentUser.initials, source: "cold", referred_by_client_id: "", referred_by_name: "" },
+      ? { name: editing.name, contact: editing.contact, value: editing.value, stage: editing.stage, owner: editing.owner, source: editing.source ?? "cold", referred_by_client_id: editing.referred_by_client_id ?? "", referred_by_name: editing.referred_by_name ?? "", videos_per_month: editing.videos_per_month ?? 0, monthly_fee: editing.monthly_fee ?? 0 }
+      : { name: "", contact: "", value: 0, stage: "new", owner: currentUser.initials, source: "cold", referred_by_client_id: "", referred_by_name: "", videos_per_month: 0, monthly_fee: 0 },
   });
   const onSubmit = (f: LeadForm) => (editing ? updateLead(editing.id, f) : addLead(f));
   const isReferral = watch("source") === "referral";
@@ -416,6 +449,10 @@ function LeadModal() {
             <div className="bm-field"><label className="bm-label">Стойност (EUR)</label><input className="bm-input" type="number" {...register("value", { valueAsNumber: true })} /><Err msg={errors.value?.message} /></div>
             <div className="bm-field"><label className="bm-label">Етап</label><select className="bm-select" {...register("stage")}>{PIPELINE_STAGES.map((s) => <option key={s.key} value={s.key}>{s.title}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
+          </div>
+          <div className="bm-form-row">
+            <div className="bm-field"><label className="bm-label">Видеа на месец</label><input className="bm-input" type="number" min={0} placeholder="напр. 10" {...register("videos_per_month", { valueAsNumber: true })} /><span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Пренася се в клиента, когато сделката се спечели.</span><Err msg={errors.videos_per_month?.message} /></div>
+            <div className="bm-field"><label className="bm-label">Месечна такса (EUR)</label><input className="bm-input" type="number" min={0} step="0.01" {...register("monthly_fee", { valueAsNumber: true })} /><Err msg={errors.monthly_fee?.message} /></div>
           </div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Източник</label><select className="bm-select" {...register("source")}>{LEAD_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></div>
@@ -450,10 +487,12 @@ function OnboardModal() {
   const ownerOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<OnboardForm>({
     resolver: zodResolver(onboardSchema),
-    defaultValues: { name: lead?.name ?? "", industry: "", mrr: lead?.value ?? 0, owner: lead?.owner ?? currentUser.initials, editor: "", packageId: CONTENT_PACKAGES[0]?.id ?? "" },
+    // Бройката и таксата идват от сделката. Няма подразбиране за бройката —
+    // ако не е попълнена в сделката, трябва да се избере тук.
+    defaultValues: { name: lead?.name ?? "", industry: "", mrr: lead?.monthly_fee || lead?.value || 0, owner: lead?.owner ?? currentUser.initials, editor: "", videos_per_month: lead?.videos_per_month || 0 },
   });
   if (!lead) return null;
-  const selPkg = CONTENT_PACKAGES.find((p) => p.id === watch("packageId")) || CONTENT_PACKAGES[0];
+  const selCount = watch("videos_per_month") || 0;
   const onSubmit = (f: OnboardForm) => onboardLead(lead.id, f);
 
   return (
@@ -470,11 +509,11 @@ function OnboardModal() {
             <div className="bm-field"><label className="bm-label">Отговорник</label><select className="bm-select" {...register("owner")}>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
             <div className="bm-field"><label className="bm-label">Видео монтажист</label><select className="bm-select" {...register("editor")}><option value="">— няма —</option>{ownerOpts.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
           </div>
-          <div className="bm-field"><label className="bm-label">Съдържателен пакет</label><select className="bm-select" {...register("packageId")}>{CONTENT_PACKAGES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select><Err msg={errors.packageId?.message} /></div>
+          <div className="bm-field"><label className="bm-label">Видеа на месец</label><input className="bm-input" type="number" min={1} placeholder="напр. 10" {...register("videos_per_month", { valueAsNumber: true })} /><Err msg={errors.videos_per_month?.message} /></div>
 
           <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
             <div className="bm-label" style={{ fontWeight: 700 }}>Какво ще се създаде</div>
-            <div className="bm-text-muted" style={{ fontSize: "var(--bm-text-sm)" }}>{ONBOARDING_TASKS.length} задачи за включване + {selPkg ? packageItemCount(selPkg) : 0} видеа в бек-лога.</div>
+            <div className="bm-text-muted" style={{ fontSize: "var(--bm-text-sm)" }}>{ONBOARDING_TASKS.length} задачи за включване + месечен цикъл за {monthLabel(monthKey())}{selCount ? ` с ${selCount} видеа` : ""}. Всеки следващ месец се отваря автоматично със същата бройка.</div>
             <ul style={{ margin: 0, paddingLeft: "1.1rem", display: "flex", flexDirection: "column", gap: 2 }}>
               {ONBOARDING_TASKS.map((t) => <li key={t.title} style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{t.title}</li>)}
             </ul>
@@ -571,7 +610,7 @@ function MetricsEditor({ itemId }: { itemId: string }) {
 }
 
 function ContentModal() {
-  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, dismissSuggestion, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone } = useStore();
+  const { modal, closeModal, addContentItem, updateContentItem, deleteContentItem, openModal, currentUser, team, clients, contentItems, approvals, requestApproval, dismissSuggestion, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone, sendToClientReview, withdrawClientReview, getPortalLink, cycles } = useStore();
   const editing = modal?.kind === "content" && modal.mode === "edit" ? modal.item : null;
   const live = editing ? contentItems.find((c) => c.id === editing.id) : null;
   const stages = live?.stages || [];
@@ -592,13 +631,27 @@ function ContentModal() {
   useEffect(() => { setCorrDraft(liveCorrections); }, [liveCorrections]);
   const assigneeOpts = Array.from(new Set([currentUser.initials, ...team.map((m) => m.initials)]));
   const createCtx = modal?.kind === "content" && modal.mode === "create" ? modal : null;
+  // Преглед от клиента в портала: праща го отговорникът на „Преглед“ (или
+  // админ/мениджър), когато видеото е стигнало този етап.
+  const canSendReview = canAssignStages || stageOwner("review") === currentUser.initials;
+  const crStatus = live?.client_review_status ?? "";
+  const crMeta = clientReviewMeta(crStatus);
+  const showClientReview = !!editing && (crStatus !== "" || (live?.current_stage ?? editing.current_stage) === "review");
+  const [portalCopied, setPortalCopied] = useState(false);
+  const fmtWhen = (iso?: string | null) => (iso ? new Date(iso).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
+  const copyPortalLink = async () => {
+    if (!live) return;
+    const token = await getPortalLink(live.client);
+    if (!token) return;
+    try { await navigator.clipboard.writeText(`${window.location.origin}/portal/${token}`); setPortalCopied(true); setTimeout(() => setPortalCopied(false), 2500); } catch { /* clipboard отказан */ }
+  };
   const clientId = editing ? (live?.client ?? "") : (createCtx?.clientId ?? "");
   const client = clients.find((c) => c.id === clientId);
   const { register, handleSubmit, getValues, setValue, watch, formState: { errors, isSubmitting } } = useForm<ContentItemForm>({
     resolver: zodResolver(contentItemSchema),
     defaultValues: editing
-      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", final_url: editing.final_url ?? "", published: editing.published ?? false }
-      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", footage_url: "", thumbnail_url: "", final_url: "", published: false },
+      ? { date: editing.date ?? "", type: editing.type, title: editing.title, notes: editing.notes, hook: editing.hook ?? "", hook_type: editing.hook_type ?? "", script: editing.script ?? "", cta: editing.cta ?? "", caption: editing.caption ?? "", footage_url: editing.footage_url ?? "", thumbnail_url: editing.thumbnail_url ?? "", final_url: editing.final_url ?? "", published: editing.published ?? false, cycle_month: cycles.find((c) => c.id === (live?.cycle_id ?? editing.cycle_id))?.month ?? "" }
+      : { date: createCtx?.date ?? "", type: "promo", title: "", notes: "", hook: "", hook_type: "", script: "", cta: "", caption: "", footage_url: "", thumbnail_url: "", final_url: "", published: false, cycle_month: "" },
   });
   const onSubmit = (f: ContentItemForm) => (editing ? updateContentItem(editing.id, f) : addContentItem(createCtx!.clientId, f));
   // Постът има различни полета: без Кука/Сценарий/CTA, с „Текст на поста“.
@@ -669,6 +722,20 @@ function ContentModal() {
             <div className="bm-field"><label className="bm-label">Дата</label><input className="bm-input" type="date" disabled={!canPublish} title={canPublish ? "" : "Датите се насрочват от админ, мениджър или Публикуващ"} {...register("date")} /><Err msg={errors.date?.message} /></div>
             <div className="bm-field"><label className="bm-label">Тип</label><select className="bm-select" {...register("type")}>{CONTENT_TYPES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
           </div>
+          {!isPost && (
+            <div className="bm-form-row">
+              <div className="bm-field">
+                <label className="bm-label">Месец на пакета</label>
+                <input className="bm-input" type="month" disabled={!canAssignStages} title={canAssignStages ? "" : "Месецът се сменя от админ или мениджър"} {...register("cycle_month")} />
+                <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Към бройката на кой месец се брои видеото. Празно = месецът на датата, иначе текущият.</span>
+              </div>
+              <div className="bm-field">
+                <label className="bm-label">Предадено на</label>
+                <div className="bm-input" style={{ display: "flex", alignItems: "center", background: "var(--bm-surface-2, transparent)", color: live?.delivered_at ? "var(--bm-text)" : "var(--bm-text-subtle)" }}>{live?.delivered_at ? new Date(live.delivered_at).toLocaleDateString("bg-BG", { day: "2-digit", month: "long", year: "numeric" }) : "още не е готово"}</div>
+                <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Записва се само, когато видеото стигне „Публикуване“.</span>
+              </div>
+            </div>
+          )}
           <div className="bm-field"><label className="bm-label">Заглавие</label><input className="bm-input" {...register("title")} placeholder="напр. промо продукт" /><Err msg={errors.title?.message} /></div>
           <div className="bm-field"><label className="bm-label">{isPost ? "Задание" : "Бележки"}</label><textarea className="bm-textarea" {...register("notes")} placeholder={isPost ? "Какво да казва постът, акценти, визия…" : "Бриф, референции, бележки…"} /></div>
 
@@ -797,13 +864,71 @@ function ContentModal() {
                 ) : <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", display: "block", marginTop: 4 }}>След преглед постави тук линка към готовата версия.</span>;
               })()}
             </div>
+            {/* Преглед от клиента — видеото става видимо в портала му чак след
+                „Изпрати на клиента“. Той одобрява с клик или пише какво да се
+                промени; решението се връща тук и като известие. */}
+            {showClientReview && editing && (
+              <div className="bm-field" style={{ border: "1px solid var(--bm-border)", borderRadius: "var(--bm-radius-md)", padding: "var(--bm-space-3)", gap: "var(--bm-space-2)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-2)" }}>
+                  <label className="bm-label" style={{ fontWeight: 700, margin: 0 }}>👀 Преглед от клиента (в портала)</label>
+                  {crMeta && <span className={"bm-badge " + crMeta.cls}>{crMeta.label}</span>}
+                </div>
+                {crStatus === "" && (
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Клиентът ще види готовия вариант в портала си и ще го одобри с един клик или ще напише какво да се промени — без чат.</span>
+                )}
+                {crStatus === "sent" && (
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Изпратено {fmtWhen(live?.client_review_sent_at)} · чака решение от клиента.</span>
+                )}
+                {crStatus === "approved" && (
+                  <div className="bm-alert bm-alert--success">Клиентът одобри видеото{live?.client_review_decided_at ? " · " + fmtWhen(live.client_review_decided_at) : ""}. Може да се качва.</div>
+                )}
+                {crStatus === "changes" && (
+                  <div className="bm-alert bm-alert--warning" style={{ display: "block" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Клиентът иска промени{live?.client_review_decided_at ? " · " + fmtWhen(live.client_review_decided_at) : ""}</div>
+                    <div style={{ whiteSpace: "pre-wrap" }}>{live?.client_review_feedback}</div>
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap", alignItems: "center" }}>
+                  {canSendReview && crStatus !== "sent" && crStatus !== "approved" && (() => {
+                    const url = watch("final_url")?.trim();
+                    return (
+                      <button
+                        type="button"
+                        className="bm-btn bm-btn--primary bm-btn--sm"
+                        disabled={!url}
+                        title={url ? "Клиентът ще види линка от „Готов вариант“" : "Първо сложи линк в „Готов вариант“"}
+                        onClick={() => sendToClientReview(editing.id, url || "")}
+                      >{crStatus === "changes" ? "Изпрати новата версия" : "Изпрати на клиента"}</button>
+                    );
+                  })()}
+                  {crStatus === "changes" && canWriteCorrections && live?.client_review_feedback && (
+                    <button
+                      type="button"
+                      className="bm-btn bm-btn--secondary bm-btn--sm"
+                      disabled={liveCorrections.includes(live.client_review_feedback)}
+                      title="Добавя бележките на клиента в „Корекции“ и известява монтажиста"
+                      onClick={() => saveCorrections(editing.id, [liveCorrections, "От клиента: " + live.client_review_feedback].filter(Boolean).join("\n\n"))}
+                    >{liveCorrections.includes(live.client_review_feedback) ? "✓ В корекциите" : "Прехвърли в Корекции"}</button>
+                  )}
+                  {crStatus !== "" && (
+                    <button type="button" className="bm-btn bm-btn--secondary bm-btn--sm" onClick={copyPortalLink}>{portalCopied ? "✓ Копиран" : "Копирай линк към портала"}</button>
+                  )}
+                  {canSendReview && crStatus === "sent" && (
+                    <button type="button" className="bm-btn bm-btn--ghost bm-btn--sm" title="Скрива видеото от портала на клиента" onClick={() => withdrawClientReview(editing.id)}>Оттегли</button>
+                  )}
+                </div>
+                {canSendReview && crStatus === "" && !watch("final_url")?.trim() && (
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Сложи линк в „Готов вариант“ по-горе, за да го изпратиш.</span>
+                )}
+              </div>
+            )}
             <label className="bm-checkbox" title={canPublish ? "" : "Отбелязва се от админ, мениджър или Публикуващ"}><input type="checkbox" disabled={!canPublish} {...register("published")} /> Публикувано</label>
           </div>
 
           {editing && (
             <div style={{ borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-4)", display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-2)" }}>
-                <div className="bm-label" style={{ fontWeight: 700 }}>Одобрение от клиента</div>
+                <div className="bm-label" style={{ fontWeight: 700 }}>Одобрение на сценария от клиента</div>
                 {approval && <span className={"bm-badge " + approvalStatusMeta(approval.status).cls}>{approvalStatusMeta(approval.status).label}</span>}
               </div>
               {approval?.status === "changes_requested" && approval.feedback && (
@@ -892,6 +1017,10 @@ function ContentModal() {
                 );
               })}
             </div>
+          )}
+
+          {editing && live && !isPost && (
+            <VideoFlow item={live} canEdit={canAssignStages || stageOwner(live.current_stage || "strategy") === currentUser.initials} />
           )}
 
           {editing && currentUser.isAdmin && (live?.published ?? editing.published) && (
@@ -1157,11 +1286,12 @@ function InvoiceModal() {
   const { modal, closeModal, addInvoice, updateInvoice, clients } = useStore();
   const editing = modal?.kind === "invoice" && modal.mode === "edit" ? modal.invoice : null;
   const presetClient = modal?.kind === "invoice" && modal.mode === "create" ? modal.clientId : undefined;
+  const prefill = modal?.kind === "invoice" && modal.mode === "create" ? modal.prefill : undefined;
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<InvoiceForm>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: editing
-      ? { client: editing.client, amount: editing.amount, status: editing.status, issued: editing.issued, due: editing.due, paid_at: editing.paid_at || todayISO() }
-      : { client: presetClient ?? clients[0]?.id ?? "", amount: 0, status: "draft", issued: todayISO(), due: "—", paid_at: todayISO() },
+      ? { client: editing.client, amount: editing.amount, status: editing.status, issued: editing.issued, due: editing.due, due_date: editing.due_date || "", paid_at: editing.paid_at || todayISO(), period: editing.period || (editing.issued || "").slice(0, 7) }
+      : { client: presetClient ?? clients[0]?.id ?? "", amount: 0, status: "draft", issued: todayISO(), due: "—", due_date: "", paid_at: todayISO(), period: todayISO().slice(0, 7), ...prefill },
   });
   // Датата на плащане има смисъл само за платена фактура — тя движи месечните сметки.
   const isPaid = watch("status") === "paid";
@@ -1174,11 +1304,16 @@ function InvoiceModal() {
           <div className="bm-field"><label className="bm-label">Клиент</label><select className="bm-select" {...register("client")}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Err msg={errors.client?.message} /></div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Сума (EUR)</label><input className="bm-input" type="number" step="0.01" {...register("amount", { valueAsNumber: true })} placeholder="0.00" /><Err msg={errors.amount?.message} /></div>
-            <div className="bm-field"><label className="bm-label">Падеж</label><input className="bm-input" {...register("due")} placeholder="15 юли" /></div>
+            <div className="bm-field"><label className="bm-label">Падеж</label><input className="bm-input" type="date" {...register("due_date")} /><span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Празно = издаване + срока на клиента.</span></div>
           </div>
           <div className="bm-form-row">
             <div className="bm-field"><label className="bm-label">Издадена на</label><input className="bm-input" type="date" {...register("issued")} /><Err msg={errors.issued?.message} /></div>
             <div className="bm-field"><label className="bm-label">Статус</label><select className="bm-select" {...register("status")}><option value="draft">Чернова</option><option value="pending">Чакаща</option><option value="overdue">Просрочена</option><option value="paid">Платена</option></select></div>
+          </div>
+          <div className="bm-field">
+            <label className="bm-label">За месец</label>
+            <input className="bm-input" type="month" {...register("period")} />
+            <small className="bm-text-subtle">За кой месец е плащането — по него се смята кой колко още дължи. Закъсняло плащане се записва към месеца, за който е.</small>
           </div>
           {isPaid && (
             <div className="bm-field">

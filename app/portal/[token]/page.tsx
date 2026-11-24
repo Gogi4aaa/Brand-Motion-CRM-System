@@ -7,7 +7,9 @@
 //   * контент календара — кога какво излиза,
 //   * пакета за месеца и напомняне за плащане, когато е изпълнен,
 //   * фактурите и общо инвестираното по офертата,
-//   * резултатите на публикуваните видеа.
+//   * резултатите на публикуваните видеа,
+//   * готовите видеа, изпратени за преглед — гледа ги тук и ги одобрява с един
+//     клик или пише какво да се промени (вместо бележки по чат).
 // Internal details (сценарии, изпълнители, вътрешни бележки) never reach here.
 
 import { useEffect, useState, use, useCallback } from "react";
@@ -18,15 +20,22 @@ interface PortalItem {
   id: string; title: string; type: string; date: string | null;
   published: boolean; current_stage: string; stages: PortalStage[];
   metrics: PortalMetrics | null;
+  review?: PortalReview | null;
 }
-interface PortalInvoice { id: string; amount: number; status: "paid" | "pending" | "overdue"; issued: string; due: string }
-interface PortalCycle { month: string; target_count: number; done_count: number; phase: string }
+interface PortalReview { status: "sent" | "approved" | "changes"; url: string; feedback: string; sent_at: string | null; decided_at: string | null }
+interface PortalInvoice { id: string; amount: number; status: "paid" | "pending" | "overdue"; issued: string; due: string; due_date?: string | null; paid_at?: string | null; period?: string | null }
+interface PortalCycle { month: string; target_count: number; done_count: number; in_work?: number; phase: string }
+// Месец от пакета (portal_get v6, миграция 0063): видеата се броят към месеца
+// на пакета; „готово“ = има дата на предаване.
+interface PortalMonthVideo { id: string; title: string; current_stage: string; delivered_at: string | null; date: string | null; published: boolean }
+interface PortalMonth { month: string; target_count: number; videos: PortalMonthVideo[] }
 interface PortalBusy { date: string; start: string | null; end: string | null }
 interface PortalBooking { id: string; date: string; start: string | null; end: string | null; status: "pending" | "approved" | "declined" }
 interface PortalData {
   client_name: string; monthly_fee: number; paid_total: number; pending_total: number;
   first_paid_at: string | null; invoices: PortalInvoice[]; cycle: PortalCycle | null; items: PortalItem[];
   busy: PortalBusy[]; bookings: PortalBooking[];
+  months?: PortalMonth[]; since?: string | null; today?: string; videos_per_month?: number | null; platforms?: string[];
 }
 
 const TYPE_LABELS: Record<string, string> = { promo: "Промо", info: "Инфо", reel: "Рийл", project: "Проект", post: "Пост" };
@@ -58,6 +67,99 @@ const monthName = (ym: string) => {
   return m >= 1 && m <= 12 ? MONTHS[m - 1] : ym;
 };
 
+const monthEnd = (ym: string) => { const [y, m] = ym.split("-").map(Number); return `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`; };
+const daysBetween = (a: string, b: string) => Math.round((new Date(a + "T00:00:00").getTime() - new Date(b + "T00:00:00").getTime()) / 86400000);
+const videoWord = (n: number) => (n === 1 ? "видео" : "видеа");
+
+// „Лента с кадри“: едно деление = едно видео от пакета за месеца.
+function MonthStrip({ m, big }: { m: PortalMonth; big?: boolean }) {
+  const done = m.videos.filter((v) => v.delivered_at);
+  const late = done.filter((v) => v.delivered_at!.slice(0, 10) > monthEnd(m.month)).length;
+  const slots = Math.max(m.target_count, done.length, 1);
+  const segs: string[] = [];
+  for (let i = 0; i < slots; i++) {
+    if (i < done.length) segs.push(m.target_count && i >= m.target_count ? "over" : i < done.length - late ? "done" : "late");
+    else segs.push("");
+  }
+  const label = m.target_count ? `${done.length} от ${m.target_count} видеа готови` : `${done.length} готови`;
+  return (
+    <div className={"qt-strip" + (big ? " qt-strip--lg" : " qt-strip--sm")} role="img" aria-label={label}>
+      {segs.map((x, i) => <span key={i} className={"qt-seg" + (x ? ` qt-seg--${x}` : "")} />)}
+    </div>
+  );
+}
+
+// „Вашите видеа по месеци“: избираш месец → бройката и самите видеа.
+function MonthsCard({ months: all, current }: { months: PortalMonth[]; current: string }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  // В месеца влизат само ГОТОВИТЕ видеа — идеите и сценариите в работа не са
+  // „за месеца“ (те се виждат отделно, в „В работа в момента“).
+  const months = all
+    .map((m) => ({ ...m, videos: m.videos.filter((v) => v.delivered_at) }))
+    .filter((m) => m.videos.length > 0 || m.target_count > 0 || m.month === current);
+  const sel = months.find((m) => m.month === picked) ?? months.find((m) => m.month === current) ?? months[0];
+  if (!sel) return null;
+  const done = sel.videos.filter((v) => v.delivered_at);
+  const left = Math.max(0, sel.target_count - done.length);
+  const full = sel.target_count > 0 && done.length >= sel.target_count;
+  // Последно предадените първи.
+  const list = [...sel.videos].sort((a, b) => (b.delivered_at || "").localeCompare(a.delivered_at || ""));
+  return (
+    <div className="pt-card">
+      <div className="pt-card__head">
+        <h2>🎬 Вашите видеа по месеци</h2>
+        <span className={"bm-badge " + (full ? "bm-badge--success" : "bm-badge--brand")}>
+          {monthName(sel.month)} · {sel.target_count ? `${done.length}/${sel.target_count}` : `${done.length} ${videoWord(done.length)}`}
+        </span>
+      </div>
+      <div className="pt-card__body" style={{ gap: "var(--bm-space-4)" }}>
+        {months.length > 1 && (
+          <div className="qt-months" role="group" aria-label="Месеци">
+            {months.map((m) => {
+              const d = m.videos.filter((v) => v.delivered_at).length;
+              return (
+                <button key={m.month} type="button" className="qt-month" aria-pressed={m.month === sel.month} onClick={() => setPicked(m.month)} style={{ flexDirection: "column", alignItems: "stretch", gap: 6, minWidth: 116 }}>
+                  <span className="qt-month__name">{monthName(m.month)} {m.month.slice(0, 4)}{m.month === current && <span className="qt-month__now" title="текущ месец" />}</span>
+                  <b style={{ fontFamily: "var(--bm-font-mono)" }}>{m.target_count ? `${d}/${m.target_count}` : d}</b>
+                  <MonthStrip m={m} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <MonthStrip m={sel} big />
+        <div className="qt-stats" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          <div className="qt-statbox"><b>{done.length}</b><span>готови</span></div>
+          <div className="qt-statbox"><b>{sel.target_count ? left : "—"}</b><span>остават до пакета</span></div>
+        </div>
+        <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>
+          {full ? `Пакетът за ${monthName(sel.month)} е изпълнен.` : sel.target_count ? `Пакетът за ${monthName(sel.month)} е ${sel.target_count} видеа — ${left === 0 ? "всички са готови" : `остават още ${left}`}.` : `Видеата, направени за ${monthName(sel.month)}.`}
+        </span>
+        {list.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--bm-border)" }}>
+            {list.map((v) => {
+              const late = !!v.delivered_at && v.delivered_at.slice(0, 10) > monthEnd(sel.month);
+              return (
+                <div key={v.id} className="pt-mvid">
+                  <span className={"qt-video__mark" + (v.delivered_at ? (late ? " qt-video__mark--late" : "") : " qt-video__mark--work")} aria-hidden="true">{v.delivered_at ? "✓" : ""}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span className="qt-video__title" style={{ display: "block" }}>{v.title || "Видео"}</span>
+                    <span className="qt-video__meta" style={{ display: "block" }}>
+                      {v.delivered_at ? `Готово на ${fmtDay(v.delivered_at.slice(0, 10))}` : `В работа · ${STAGE_LABELS[v.current_stage] || v.current_stage}`}
+                      {v.published && v.date ? ` · публикувано ${fmtDay(v.date)}` : !v.published && v.date ? ` · планирано за ${fmtDay(v.date)}` : ""}
+                    </span>
+                  </span>
+                  <span className={"bm-badge " + (v.delivered_at ? "bm-badge--success" : "bm-badge--neutral")}>{v.delivered_at ? "готово" : "в работа"}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Progress({ item }: { item: PortalItem }) {
   const order = stageOrderOf(item);
   const doneCount = item.published ? order.length : order.filter((k) => item.stages.find((s) => s.key === k)?.status === "done").length;
@@ -73,6 +175,104 @@ function Progress({ item }: { item: PortalItem }) {
           return <span key={k} className={cls}>{st === "done" ? "✓ " : ""}{STAGE_LABELS[k] || k}</span>;
         })}
       </div>
+    </div>
+  );
+}
+
+// Линк към конкретен Drive файл → вграден плейър; всичко друго (папка,
+// WeTransfer…) се отваря в нов прозорец.
+const safeUrl = (u: string) => (/^https?:\/\//i.test(u || "") ? u : "");
+const driveEmbed = (u: string) => {
+  const m = /drive\.google\.com/.test(u) ? u.match(/\/file\/d\/([\w-]+)/) || u.match(/[?&]id=([\w-]+)/) : null;
+  return m ? `https://drive.google.com/file/d/${m[1]}/preview` : "";
+};
+const fmtStamp = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+};
+
+// Едно видео за преглед: гледане + „Одобрявам“ / „Искам промени“ с бележка.
+function ReviewItem({ token, item, onDone }: { token: string; item: PortalItem; onDone: () => void }) {
+  const rv = item.review!;
+  const [mode, setMode] = useState<"view" | "changes">("view");
+  const [play, setPlay] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const url = safeUrl(rv.url);
+  const embed = driveEmbed(url);
+
+  const decide = async (decision: "approved" | "changes") => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`/api/portal/${token}/review`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item: item.id, decision, feedback: decision === "changes" ? feedback : "" }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Грешка");
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Грешка"); setBusy(false); }
+  };
+
+  return (
+    <div className="pt-item pt-rv">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700 }}>{item.title || "(без заглавие)"}</span>
+        <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span className="bm-badge bm-badge--neutral">{TYPE_LABELS[item.type] || item.type}</span>
+          {rv.status === "sent" && rv.sent_at && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>изпратено на {fmtStamp(rv.sent_at)}</span>}
+          {rv.status === "approved" && <span className="bm-badge bm-badge--success">Одобрено</span>}
+          {rv.status === "changes" && <span className="bm-badge bm-badge--warning">Работим по бележките</span>}
+        </span>
+      </div>
+
+      {url && (
+        embed && play ? (
+          <div className="pt-rv__frame"><iframe src={embed} title={item.title || "Видео"} allow="autoplay; fullscreen" allowFullScreen /></div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {embed && <button type="button" className="bm-btn bm-btn--secondary" onClick={() => setPlay(true)}>▶ Гледай тук</button>}
+            <a className={"bm-btn " + (embed ? "bm-btn--ghost" : "bm-btn--secondary")} href={url} target="_blank" rel="noreferrer">{embed ? "Отвори в нов прозорец ↗" : "▶ Виж видеото ↗"}</a>
+          </div>
+        )
+      )}
+      {url && embed && play && (
+        <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-brand-600)", fontWeight: 700 }}>Не се зарежда? Отвори в нов прозорец ↗</a>
+      )}
+
+      {rv.status === "changes" && rv.feedback && (
+        <div style={{ fontSize: "var(--bm-text-sm)", background: "var(--bm-surface-2)", borderRadius: "var(--bm-radius-md)", padding: "10px 12px" }}>
+          <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", marginBottom: 2 }}>Вашите бележки{rv.decided_at ? ` · ${fmtStamp(rv.decided_at)}` : ""}</div>
+          <div style={{ whiteSpace: "pre-wrap" }}>{rv.feedback}</div>
+        </div>
+      )}
+
+      {rv.status === "sent" && (
+        <>
+          {mode === "changes" && (
+            <label className="pt-book__f">
+              <span className="bm-label">Какво да променим?</span>
+              <textarea className="bm-textarea" style={{ minHeight: 110 }} autoFocus value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="напр. На 0:12 смени музиката · махни втория надпис · логото по-голямо накрая…" />
+            </label>
+          )}
+          {err && <div className="bm-alert bm-alert--danger">{err}</div>}
+          <div className="pt-rv__actions">
+            {mode === "view" ? (
+              <>
+                <button type="button" className="bm-btn bm-btn--secondary" disabled={busy} onClick={() => setMode("changes")}>Искам промени</button>
+                <button type="button" className="bm-btn bm-btn--primary" disabled={busy} onClick={() => decide("approved")}>{busy ? "Записване…" : "✓ Одобрявам"}</button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="bm-btn bm-btn--ghost" disabled={busy} onClick={() => { setMode("view"); setErr(""); }}>Назад</button>
+                <button type="button" className="bm-btn bm-btn--primary" disabled={busy || !feedback.trim()} onClick={() => decide("changes")}>{busy ? "Изпращане…" : "Изпрати бележките"}</button>
+              </>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -103,6 +303,12 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
       .finally(() => setLoading(false)), [token]);
 
   useEffect(() => { load(); }, [load]);
+  // Опресняване при връщане към страницата — без да презареждаш.
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [load]);
 
   // ---- Заявка за снимачен ден (визуален календар + избор на ден) ----
   const [bkMonthOff, setBkMonthOff] = useState(0);
@@ -135,6 +341,10 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
   const inProgress = items.filter((i) => !i.published);
   const published = items.filter((i) => i.published);
   const totalViews = published.reduce((a, i) => a + (i.metrics?.views || 0), 0);
+  // Видеа, изпратени от екипа за преглед: първо чакащите решение, после тези,
+  // по които вече има отговор (докато не бъдат публикувани).
+  const toReview = inProgress.filter((i) => i.review?.status === "sent");
+  const reviewed = inProgress.filter((i) => i.review && i.review.status !== "sent");
 
   // Контент календар: месечна решетка с заглавията на видеата за избрания
   // месец (данните вече идват ограничени до този клиент от portal_get).
@@ -162,6 +372,11 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
   const cycleDone = !!cycle && cycle.target_count > 0 && cycle.done_count >= cycle.target_count;
   const pendingInv = (data?.invoices || []).find((i) => i.status === "pending" || i.status === "overdue");
   const showPayReminder = cycleDone || !!pendingInv;
+  const today = data?.today || todayIso;
+  // Просрочие в дни за неплатена фактура (0 = още не е паднала).
+  const overdueDays = (iv: PortalInvoice) => (iv.status !== "paid" && iv.due_date && iv.due_date < today ? daysBetween(today, iv.due_date) : 0);
+  const months = data?.months || [];
+  const curMonth = today.slice(0, 7);
 
   // ---- Данни за визуалния календар за снимачни дни ----
   const activeBookings = (data?.bookings || []).filter((b) => b.status !== "declined");
@@ -242,6 +457,11 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
         .pt-book__f { display: flex; flex-direction: column; gap: 4px; }
         /* „зает" маркер в календарна клетка (одобрен слот на друг клиент, без име). */
         .pt-book__busy { margin-top: auto; display: flex; }
+        .pt-book__mine { display: none; margin-top: auto; justify-content: center; }
+        .pt-book__mine span { width: 8px; height: 8px; border-radius: 50%; }
+        @media (max-width: 600px) { .pt-book__mine { display: flex; } }
+        .pt-mvid { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: var(--bm-space-3); padding: var(--bm-space-3) 0; border-bottom: 1px solid var(--bm-border); }
+        .pt-mvid:last-child { border-bottom: 0; }
         .pt-book__busy span { font-size: 9px; font-weight: 700; letter-spacing: .02em; color: var(--bm-text-subtle); background: var(--bm-surface-2); border: 1px solid var(--bm-border); border-radius: 99px; padding: 0 6px; }
         /* Изскачащ прозорец „видеа за деня“. */
         .pt-dv { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: flex; align-items: flex-end; justify-content: center; padding: var(--bm-space-4); z-index: 50; }
@@ -257,6 +477,12 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
         .pt-pay { border-radius: var(--bm-radius-xl); padding: var(--bm-space-5); background: linear-gradient(135deg, var(--bm-warning-50), var(--bm-surface)); border: 1px solid var(--bm-warning-500); display: flex; flex-direction: column; gap: 6px; box-shadow: var(--bm-shadow-md); }
         .pt-invrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--bm-border); font-size: var(--bm-text-sm); }
         .pt-invrow:last-child { border-bottom: none; }
+        .pt-card--attn { border-color: var(--bm-brand-500); box-shadow: 0 0 0 3px var(--bm-brand-50), var(--bm-shadow-md); }
+        .pt-rv { display: flex; flex-direction: column; gap: 12px; }
+        .pt-rv__frame { position: relative; width: 100%; max-width: 340px; aspect-ratio: 9 / 16; margin: 0 auto; border-radius: var(--bm-radius-lg); overflow: hidden; background: #000; }
+        .pt-rv__frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+        .pt-rv__actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+        @media (max-width: 480px) { .pt-rv__actions .bm-btn { flex: 1 1 140px; } }
         @media (max-width: 480px) { .pt-card__body { padding: var(--bm-space-4); } }
       `}</style>
 
@@ -281,30 +507,46 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
               <Stat label="Инвестирано до момента" value={money(data.paid_total)} />
             </div>
 
+            {(toReview.length > 0 || reviewed.length > 0) && (
+              <div className={"pt-card" + (toReview.length ? " pt-card--attn" : "")}>
+                <div className="pt-card__head">
+                  <h2>👀 Видеа за преглед</h2>
+                  {toReview.length > 0
+                    ? <span className="bm-badge bm-badge--warning">{toReview.length} {toReview.length === 1 ? "чака" : "чакат"} вас</span>
+                    : <span className="bm-badge bm-badge--success">Всичко е прегледано</span>}
+                </div>
+                <div className="pt-card__body">
+                  {toReview.length > 0 && (
+                    <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", margin: 0 }}>Изгледайте видеото и го одобрете с един клик — или напишете какво да променим.</p>
+                  )}
+                  {[...toReview, ...reviewed].map((it) => <ReviewItem key={it.id + (it.review?.status || "")} token={token} item={it} onDone={load} />)}
+                </div>
+              </div>
+            )}
+
             {showPayReminder && (
               <div className="pt-pay">
                 <div style={{ fontWeight: 800, fontSize: "var(--bm-text-base)" }}>
-                  {cycleDone ? `🎬 Пакетът за ${cycle ? monthName(cycle.month) : "месеца"} е изпълнен — ${cycle?.done_count}/${cycle?.target_count} видеа са публикувани!` : "Имате фактура за плащане"}
+                  {pendingInv && overdueDays(pendingInv) > 0 ? "Имате просрочена фактура" : cycleDone ? `🎬 Пакетът за ${cycle ? monthName(cycle.month) : "месеца"} е изпълнен — ${cycle?.done_count}/${cycle?.target_count} видеа са готови!` : "Имате фактура за плащане"}
                 </div>
                 <div style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-text-muted)" }}>
                   {pendingInv
-                    ? <>Фактура {pendingInv.id} на стойност <b>{money(pendingInv.amount)}</b> очаква плащане{pendingInv.due ? <> · падеж {pendingInv.due}</> : null}.</>
+                    ? <>Фактура {pendingInv.id} на стойност <b>{money(pendingInv.amount)}</b> очаква плащане{pendingInv.due_date ? <> · {overdueDays(pendingInv) > 0 ? <b>падежът беше на {fmtDay(pendingInv.due_date)} ({overdueDays(pendingInv)} {overdueDays(pendingInv) === 1 ? "ден" : "дни"})</b> : <>срок до {fmtDay(pendingInv.due_date)}</>}</> : null}.</>
                     : "Очаквайте фактурата за периода — благодарим за доверието!"}
                 </div>
               </div>
             )}
 
-            {cycle && cycle.target_count > 0 && (
+            {months.length > 0 ? (
+              <MonthsCard months={months} current={curMonth} />
+            ) : cycle && cycle.target_count > 0 ? (
               <div className="pt-card">
                 <div className="pt-card__head"><h2>Пакет за {monthName(cycle.month)}</h2><span className="bm-badge bm-badge--brand">{cycle.done_count}/{cycle.target_count} видеа</span></div>
                 <div className="pt-card__body" style={{ gap: 10 }}>
                   <div className="pt-track"><div className="pt-fill" style={{ width: Math.min(100, Math.round((cycle.done_count / cycle.target_count) * 100)) + "%" }} /></div>
-                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>
-                    {cycleDone ? "Всички видеа от пакета са публикувани." : `Още ${cycle.target_count - cycle.done_count} ${cycle.target_count - cycle.done_count === 1 ? "видео" : "видеа"} до изпълнение на пакета.`}
-                  </span>
                 </div>
               </div>
-            )}
+            ) : null}
 
             <div className="pt-card">
               <div className="pt-card__head">
@@ -385,6 +627,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                         {mine.map((b) => (
                           <div key={b.id} className={"pt-ev" + (b.status === "approved" ? " pt-ev--done" : "")} style={b.status === "pending" ? { background: "var(--bm-warning-50)", color: "var(--bm-warning-700)", borderLeftColor: "var(--bm-warning-500)" } : undefined} title={b.status === "approved" ? "Одобрен" : "Чака одобрение"}>{b.start || "снимки"}</div>
                         ))}
+                        {mine.length > 0 && <div className="pt-book__mine" title="Ваша заявка"><span style={{ background: mine.some((b) => b.status === "approved") ? "var(--bm-success-500)" : "var(--bm-warning-500)" }} /></div>}
                         {mine.length === 0 && busy.length > 0 && (
                           <div className="pt-book__busy"><span>зает</span></div>
                         )}
@@ -445,6 +688,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                       <span style={{ fontWeight: 700 }}>{it.title || "(без заглавие)"}</span>
                       <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {it.review?.status === "sent" && <span className="bm-badge bm-badge--warning">Чака вашия преглед</span>}
                         <span className="bm-badge bm-badge--neutral">{TYPE_LABELS[it.type] || it.type}</span>
                         {it.date && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>план: {fmtDay(it.date)}</span>}
                       </span>
@@ -492,7 +736,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                 <div className="pt-stats">
                   <Stat label="Платено общо" value={money(data.paid_total)} />
                   <Stat label="Чака плащане" value={money(data.pending_total)} accent={data.pending_total > 0} />
-                  {data.first_paid_at && <Stat label="Партньори от" value={fmtDay(data.first_paid_at.slice(0, 10))} />}
+                  {(data.since || data.first_paid_at) && <Stat label="Партньори от" value={(() => { const d = (data.since || data.first_paid_at!).slice(0, 10); return `${fmtDay(d)} ${d.slice(0, 4)}`; })()} />}
                 </div>
                 {data.invoices.length > 0 ? (
                   <div>
@@ -501,7 +745,10 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
                       return (
                         <div key={iv.id} className="pt-invrow">
                           <span style={{ fontFamily: "var(--bm-font-mono)", fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{iv.id}</span>
-                          <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>издадена {fmtDay(iv.issued)}{iv.due ? ` · падеж ${iv.due}` : ""}</span>
+                          <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>
+                            издадена {fmtDay(iv.issued)}
+                            {iv.status === "paid" ? (iv.paid_at ? ` · платена на ${fmtDay(iv.paid_at)}` : "") : iv.due_date ? (overdueDays(iv) > 0 ? <b style={{ color: "var(--bm-danger-600)" }}> · просрочена с {overdueDays(iv)} {overdueDays(iv) === 1 ? "ден" : "дни"}</b> : ` · срок до ${fmtDay(iv.due_date)}`) : ""}
+                          </span>
                           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <span style={{ fontWeight: 700 }}>{money(iv.amount)}</span>
                             <span className={"bm-badge " + m.cls}>{m.label}</span>
@@ -517,7 +764,7 @@ export default function PortalPage({ params }: { params: Promise<{ token: string
             </div>
 
             <p className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", textAlign: "center" }}>
-              Страницата се обновява автоматично с напредъка на екипа. При въпроси — просто ни пишете. 💙
+              Данните са актуални към момента на отваряне и се опресняват, когато се върнете на страницата. При въпроси — просто ни пишете. 💙
             </p>
 
             {/* Изскачащ прозорец с видеата за тапнатия ден (телефон). */}

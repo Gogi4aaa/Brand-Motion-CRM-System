@@ -22,7 +22,12 @@ export default function PipelinePage() {
   const [dragId, setDragId] = useState<string | null>(null);
   const byId = clientsById(clients);
 
-  const open = leads.filter((l) => l.stage !== "won" && l.stage !== "lost");
+  // „На изчакване“ не е активна сделка — не влиза в „Активни сделки“.
+  const open = leads.filter((l) => l.stage !== "won" && l.stage !== "lost" && l.stage !== "waiting");
+  const waiting = leads.filter((l) => l.stage === "waiting");
+  // „Сега“ се взема веднъж при зареждане — рендерът остава чист.
+  const [now] = useState(() => Date.now());
+  const daysIn = (iso?: string | null) => (iso ? Math.max(0, Math.floor((now - new Date(iso).getTime()) / 86400000)) : null);
   const won = leads.filter((l) => l.stage === "won");
   const lost = leads.filter((l) => l.stage === "lost");
   const closed = won.length + lost.length;
@@ -47,13 +52,13 @@ export default function PipelinePage() {
       </div>
 
       <section className="bm-stats">
-        <Kpi label="Активни сделки" value={<Money>{fmtK(sum(open))}</Money>} delta={`${open.length} активни сделки`} />
+        <Kpi label="Активни сделки" value={<Money>{fmtK(sum(open))}</Money>} delta={`${open.length} активни${waiting.length ? ` · ${waiting.length} на изчакване` : ""}`} />
         <Kpi label="Спечелени" value={<Money>{fmtK(sum(won))}</Money>} deltaCls="bm-stat__delta--up" delta={`${won.length} затворени`} />
         <Kpi label="Успеваемост" value={winRate + "%"} delta={`${closed} затворени сделки`} />
         <Kpi label="Препоръки" value={referrals.length} delta={leads.length ? `${Math.round((referrals.length / leads.length) * 100)}% от всички` : "—"} />
       </section>
 
-      <div className="bm-board bm-board--5">
+      <div className="bm-board bm-board--6 pl-board">
         {PIPELINE_STAGES.map((col) => {
           const items = leads.filter((l) => l.stage === col.key);
           const colIdx = PIPELINE_STAGES.findIndex((c) => c.key === col.key);
@@ -92,6 +97,9 @@ export default function PipelinePage() {
                         <span className={"bm-badge " + src.cls} style={{ flexShrink: 0 }}>{src.label}</span>
                       </div>
                       {l.contact && <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.contact}</div>}
+                      {l.stage === "waiting" && daysIn(l.stage_changed_at) !== null && (
+                        <span className={"bm-badge " + ((daysIn(l.stage_changed_at) || 0) >= 30 ? "bm-badge--danger" : "bm-badge--neutral")} style={{ alignSelf: "flex-start" }}>чака от {daysIn(l.stage_changed_at)} {daysIn(l.stage_changed_at) === 1 ? "ден" : "дни"}</span>
+                      )}
                       {l.source === "referral" && ref && (
                         <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-brand-600)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Препоръчан от ${ref}`}>↩ {ref}</div>
                       )}

@@ -10,7 +10,7 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { CONTENT_TYPES, contentTypeMeta, clientsById } from "@/lib/data";
 
-const WEEKDAYS = ["НД", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"];
+const WEEKDAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "НД"];
 const MONTHS = ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"];
 
 const iso = (y: number, m: number, d: number) =>
@@ -55,7 +55,7 @@ export function ContentCalendar({ initialClientId, clientId: controlledClient, o
 
   // Build the 6x7 grid of dates for the visible month.
   const first = new Date(view.y, view.m, 1);
-  const startOffset = first.getDay(); // 0 = Sunday
+  const startOffset = (first.getDay() + 6) % 7; // седмицата почва от понеделник
   const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
   const cells: ({ day: number; date: string } | null)[] = [];
   for (let i = 0; i < startOffset; i++) cells.push(null);

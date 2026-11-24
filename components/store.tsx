@@ -1,7 +1,9 @@
 "use client";
 
+import type { ReminderLogRow, ReminderStage } from "@/lib/reminders";
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import {
+import { ymNow, type PipelineRow, type QuickClientForm, type ClientPackage } from "@/lib/crm";
+import { type MonthTarget,
   clients as seedClients,
   invoices as seedInvoices,
   tasks as seedTasks,
@@ -13,12 +15,11 @@ import {
   stageMeta,
   ROLE_LABELS,
   ONBOARDING_TASKS,
-  CONTENT_PACKAGES,
-  packageItemCount,
   cyclePhaseMeta,
   monthKey,
   monthLabel,
   todayISO,
+  addDaysISO,
   visibleClientsFor,
   activeClients,
   type Approval,
@@ -36,6 +37,8 @@ import {
   type ContentItem,
   type ContentType,
   type ContentCycle,
+  type WaitingOn,
+  type StageEvent,
   type CyclePhase,
   type ClientConnection,
   type ChannelProvider,
@@ -84,9 +87,11 @@ export interface NotificationItem { id: string; recipient: string; actor_name: s
 export type Modal =
   | { kind: "task"; mode: "create" }
   | { kind: "task"; mode: "edit"; task: Task }
-  | { kind: "invoice"; mode: "create"; clientId?: string }
+  | { kind: "invoice"; mode: "create"; clientId?: string; prefill?: Partial<InvoiceForm> }
   | { kind: "invoice"; mode: "edit"; invoice: Invoice }
   | { kind: "client"; mode: "create" }
+  | { kind: "newClient" }
+  | { kind: "package"; clientId: string }
   | { kind: "client"; mode: "edit"; client: Client }
   | { kind: "lead"; mode: "create" }
   | { kind: "lead"; mode: "edit"; lead: Lead }
@@ -152,6 +157,18 @@ interface Store {
   cycles: ContentCycle[];
   approvals: Approval[];
   bookings: ShootBooking[];
+  // ---- CRM v2 ----
+  pipeline: PipelineRow[];
+  createClientQuick: (f: QuickClientForm) => Promise<string | null>;
+  saveClientPackage: (clientId: string, pkg: ClientPackage) => void;
+  setClientStatus: (clientId: string, status: Client["status"]) => void;
+  setOnboardingCheck: (clientId: string, key: string, done: boolean) => void;
+  setClientEngagement: (clientId: string, engagement: "retainer" | "project") => void;
+  setWaiting: (itemId: string, reason: WaitingOn, note?: string) => void;
+  loadStageEvents: (itemId: string) => Promise<StageEvent[]>;
+  loadReminderLog: () => Promise<ReminderLogRow[]>;
+  logReminder: (invoiceId: string, stage: ReminderStage, channel: string) => Promise<ReminderLogRow | null>;
+  startStrategy: (clientId: string) => Promise<boolean>;
   addBooking: (clientId: string, date: string, start: string, end: string, note: string) => void;
   deleteBooking: (id: string) => void;
   approveBooking: (id: string) => void;
@@ -169,7 +186,7 @@ interface Store {
   requestApproval: (contentItemId: string) => Promise<string | null>;
   requestBatchApproval: (itemIds: string[]) => Promise<string | null>;
   dismissSuggestion: (approvalId: string) => void;
-  startCycle: (clientId: string, month: string, targetCount: number) => void;
+  startCycle: (clientId: string, month: string, targetCount: number, dbOpens?: boolean) => void; // ако цикълът за месеца съществува — сменя само бройката му
   advanceCycle: (cycleId: string, toPhase: CyclePhase) => void;
   scheduleContent: (id: string, date: string | null) => void;
   setClientConnection: (clientId: string, provider: ChannelProvider, connected: boolean) => void;
@@ -179,6 +196,10 @@ interface Store {
   setStageStatus: (itemId: string, stageKey: string, status: StageStatus) => void;
   saveCorrections: (itemId: string, text: string) => void;
   setCorrectionsDone: (itemId: string, done: boolean) => void;
+  monthTargets: MonthTarget[];
+  setMonthTarget: (clientId: string, month: string, amount: number | null, note?: string) => void;
+  sendToClientReview: (itemId: string, url: string) => boolean;
+  withdrawClientReview: (itemId: string) => void;
   updateMemberRoles: (memberId: string, roles: string[]) => void;
   updateMemberRole: (memberId: string, role: AccessRole) => void;
   updateMemberClients: (memberId: string, clientIds: string[]) => void;
@@ -269,11 +290,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [videoRates, setVideoRates] = useState<VideoRate[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [monthTargets, setMonthTargets] = useState<MonthTarget[]>([]);
   const [team, setTeam] = useState<TeamMember[]>(seedTeam);
   const [comments, setComments] = useState<Comment[]>([]);
   const [leads, setLeads] = useState<Lead[]>(seedLeads);
   const [contentItems, setContentItems] = useState<ContentItem[]>(seedContentItems);
   const [cycles, setCycles] = useState<ContentCycle[]>([]);
+  const [pipeline, setPipeline] = useState<PipelineRow[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [bookings, setBookings] = useState<ShootBooking[]>([]);
   const [clientConnections, setClientConnections] = useState<ClientConnection[]>([]);
@@ -339,8 +362,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
         // Липсваща таблица (миграция 0029 още не е пусната) просто оставя
         // празни бранд профили — грешката не пипа останалите данни.
+        // Корекции на очакваното по месец (0058) — RLS: само админ; за останалите
+        // (или без миграцията) остава празно.
+        const mt = await sb.from("client_month_targets").select("client_id, month, amount, note");
+        if (mt.data && !cancelled) setMonthTargets((mt.data as MonthTarget[]).map((t) => ({ ...t, amount: Number(t.amount) || 0 })));
+
         const bp = await sb.from("brand_profiles").select("*");
         if (bp.data && !cancelled) setBrandProfiles(bp.data as BrandProfile[]);
+        // Агентският поток (стратегия → оферта → …). RLS: само админ го вижда.
+        const pl = await sb.from("client_pipeline").select("id, client_id, name, status, updated_at").order("created_at", { ascending: false });
+        if (pl.data && !cancelled) setPipeline(pl.data as PipelineRow[]);
         if (cancelled) return;
         if (c.data) setClients(c.data as Client[]);
         if (iv.data) setInvoices((iv.data as InvoiceRow[]).map(({ client_id, ...r }) => ({ ...r, client: client_id })));
@@ -621,7 +652,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
 
   const addLead = useCallback((f: LeadForm) => {
-    const row = { id: "l-" + Date.now(), name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner, ...leadReferral(f) };
+    const row = { id: "l-" + Date.now(), name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner, videos_per_month: f.videos_per_month || null, monthly_fee: f.monthly_fee || null, ...leadReferral(f) };
     setLeads((list) => [...list, row]);
     sb()?.from("leads").insert(row).then(({ error }) => error && console.error("[BrandMotion] addLead failed:", error));
     logActivity(`добави клиент-възможност ${f.name}`, "admin");
@@ -629,7 +660,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [logActivity]);
 
   const updateLead = useCallback((id: string, f: LeadForm) => {
-    const patch = { name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner, ...leadReferral(f) };
+    const patch = { name: f.name, contact: f.contact, value: f.value, stage: f.stage, owner: f.owner, videos_per_month: f.videos_per_month || null, monthly_fee: f.monthly_fee || null, ...leadReferral(f) };
     setLeads((list) => list.map((l) => (l.id === id ? { ...l, ...patch } : l)));
     sb()?.from("leads").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateLead failed:", error));
     setModal(null);
@@ -642,29 +673,60 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const moveLead = useCallback((id: string, stage: LeadStage) => {
-    let lead: Lead | undefined;
-    setLeads((list) => list.map((l) => { if (l.id === id) lead = l; return l.id === id ? { ...l, stage } : l; }));
+    // Четем сделката от състоянието, не от updater-а: React може да го отложи
+    // и тогава прозорецът за включване на клиент не се отваряше.
+    const lead = leads.find((l) => l.id === id);
+    setLeads((list) => list.map((l) => (l.id === id ? { ...l, stage } : l)));
     sb()?.from("leads").update({ stage }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] moveLead failed:", error));
     if (stage === "won" && lead) {
       logActivity(`спечели сделка ${lead.name}`, "admin");
       // Won + not yet converted → open the onboarding confirm gate.
       if (!lead.client_id) setModal({ kind: "onboard", lead: { ...lead, stage: "won" } });
     }
-  }, [logActivity]);
+  }, [leads, logActivity]);
 
   // ---- Monthly content cycle ----
   // Open a client's cycle for a month at the 'ideas' phase and ping the
   // strategist to start. This replaces dumping empty cards on the board.
-  const startCycle = useCallback((clientId: string, month: string, targetCount: number) => {
+  // Един цикъл на клиент за месец (0059). Ако вече има такъв, сменяме само
+  // бройката му. `dbOpens` = базата сама отваря цикъла (нов клиент с бройка),
+  // тук само го показваме веднага и известяваме стратега.
+  const startCycle = useCallback((clientId: string, month: string, targetCount: number, dbOpens = false) => {
     const client = clients.find((c) => c.id === clientId);
-    const id = `cy-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    const existing = cycles.find((c) => c.client === clientId && c.month === month);
+    if (existing) {
+      setCycles((list) => list.map((c) => (c.id === existing.id ? { ...c, target_count: targetCount } : c)));
+      sb()?.from("content_cycles").update({ target_count: targetCount }).eq("id", existing.id).then(({ error }) => {
+        if (error) { console.error("[BrandMotion] startCycle failed:", error); notifyError(`Бройката за месеца не се запази: ${error.message || "неизвестна грешка"}`); }
+      });
+      logActivity(`смени бройката на ${client?.name || clientId} за ${monthLabel(month)} на ${targetCount}`);
+      setModal(null);
+      return;
+    }
+    const id = `cy-${month}-${clientId}`; // същият ключ, който слага и базата (bm_cycle_for)
     const row = { id, client_id: clientId, month, target_count: targetCount, phase: "ideas" as CyclePhase };
-    setCycles((list) => [{ id, client: clientId, month, target_count: targetCount, phase: "ideas" }, ...list]);
-    sb()?.from("content_cycles").insert(row).then(({ error }) => error && console.error("[BrandMotion] startCycle failed:", error));
+    setCycles((list) => [{ id, client: clientId, month, target_count: targetCount, phase: "ideas" }, ...list.filter((c) => c.id !== id)]);
+    if (!dbOpens) {
+      sb()?.from("content_cycles").upsert(row, { onConflict: "client_id,month" }).then(({ error }) => {
+        if (error) { console.error("[BrandMotion] startCycle failed:", error); notifyError(`Цикълът не се запази: ${error.message || "неизвестна грешка"}`); }
+      });
+    }
     const strategist = team.find((m) => (m.roles || []).includes("strategy"))?.initials || client?.owner || "";
     if (strategist) notify(strategist, `Започни идеи и сценарии за ${client?.name || clientId} (${monthLabel(month)}): ${targetCount} видеа`, { entity_type: "cycle", entity_id: id });
     logActivity(`стартира месечен цикъл за ${client?.name || clientId} (${monthLabel(month)})`);
-  }, [clients, team, notify, logActivity]);
+    setModal(null);
+  }, [clients, cycles, team, notify, notifyError, logActivity]);
+
+  // Цикълът за (клиент, месец): от състоянието, иначе базата го намира/отваря.
+  const resolveCycle = useCallback(async (clientId: string, month: string): Promise<string | null> => {
+    const known = cycles.find((c) => c.client === clientId && c.month === month);
+    if (known) return known.id;
+    const client = sb();
+    if (!client) return null;
+    const { data, error } = await client.rpc("bm_cycle_for", { p_client: clientId, p_month: month });
+    if (error) { console.error("[BrandMotion] resolveCycle failed:", error); return null; }
+    return (data as string) || null;
+  }, [cycles]);
 
   // Move a cycle to a new phase and notify the role that owns it.
   const advanceCycle = useCallback((cycleId: string, toPhase: CyclePhase) => {
@@ -683,13 +745,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // cards — videos appear when scripts are imported). Idempotent via client_id.
   const onboardLead = useCallback((leadId: string, f: OnboardForm) => {
     const lead = leads.find((l) => l.id === leadId);
-    const pkg = CONTENT_PACKAGES.find((p) => p.id === f.packageId) || CONTENT_PACKAGES[0];
     const slug = f.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client";
     const id = clients.some((c) => c.id === slug) ? slug + "-" + (Date.now() % 10000) : slug;
     const now = Date.now();
 
     // 1. Client with an empty brand profile (filled via the checklist).
-    const clientRow = { id, name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: "Onboarding" as const, mrr: f.mrr, owner: f.owner, health: "good" as const, note: lead?.contact ? `Контакт: ${lead.contact}` : "", editor: f.editor, analysis_status: "not_started" as const, analysis_notes: "", brand_voice: "", target_audience: "", brand_assets_url: "" };
+    const clientRow = { id, name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: "Onboarding" as const, mrr: f.mrr, videos_per_month: f.videos_per_month, owner: f.owner, health: "good" as const, note: lead?.contact ? `Контакт: ${lead.contact}` : "", editor: f.editor, analysis_status: "not_started" as const, analysis_notes: "", brand_voice: "", target_audience: "", brand_assets_url: "" };
     setClients((list) => [...list, clientRow as Client]);
     sb()?.from("clients").insert(clientRow).then(({ error }) => error && console.error("[BrandMotion] onboard client failed:", error));
 
@@ -698,9 +759,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setTasks((list) => [...list, ...taskRows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
     sb()?.from("tasks").insert(taskRows).then(({ error }) => error && console.error("[BrandMotion] onboard tasks failed:", error));
 
-    // 3. Open this month's content cycle at 'ideas' (notifies the strategist to
-    //    start). No empty cards — the videos appear when scripts are imported.
-    startCycle(id, monthKey(), packageItemCount(pkg));
+    // 3. Цикълът за текущия месец го отваря базата от videos_per_month на
+    //    клиента (0059) — тук само го показваме и известяваме стратега.
+    //    No empty cards — the videos appear when scripts are imported.
+    startCycle(id, monthKey(), f.videos_per_month, true);
 
     // 4. Link the lead to its new client (idempotency guard).
     setLeads((list) => list.map((l) => (l.id === leadId ? { ...l, stage: "won", client_id: id } : l)));
@@ -788,11 +850,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const row = { id: "ct-" + Date.now(), client_id: clientId, date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, current_stage: "strategy", stages };
     const { client_id: newClient, ...restRow } = row;
     setContentItems((list) => [...list, { ...restRow, client: newClient }]);
-    sb()?.from("content_items").insert(row).then(({ error }) => error && console.error("[BrandMotion] addContentItem failed:", error));
+    // Месецът на пакета: избраният във формата, иначе базата го слага сама
+    // (месецът на датата, иначе текущият). Връщаме го в състоянието веднага.
+    (async () => {
+      const client = sb();
+      if (!client) return;
+      const cycle_id = f.cycle_month && f.type !== "post" ? await resolveCycle(clientId, f.cycle_month) : null;
+      // ръчно избран месец не се сменя при предаване (0065)
+      const payload: typeof row & { cycle_id?: string; cycle_manual?: boolean } = cycle_id ? { ...row, cycle_id, cycle_manual: true } : row;
+      const { data, error } = await client.from("content_items").insert(payload).select("id, cycle_id, delivered_at").single();
+      if (error) { console.error("[BrandMotion] addContentItem failed:", error); notifyError(`Видеото не се запази: ${error.message || "неизвестна грешка"}`); return; }
+      if (data) setContentItems((list) => list.map((c) => (c.id === data.id ? { ...c, cycle_id: data.cycle_id, delivered_at: data.delivered_at } : c)));
+    })();
     syncStageTask(row.id, f.title, clientId, "strategy", stages.find((s) => s.key === "strategy")?.assignee || "", f.type === "post" ? "Пост" : "Видео");
     logActivity(`планира съдържание „${f.title}“`);
     setModal(null);
-  }, [clients, team, currentUser.initials, syncStageTask, logActivity]);
+  }, [clients, team, currentUser.initials, syncStageTask, logActivity, resolveCycle, notifyError]);
 
   // Import many videos from a parsed .docx: each becomes a content item placed at
   // `startStage` with the prior stages pre-marked done (strategy + script were
@@ -818,7 +891,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { id: `ct-${base}-${i}`, client_id: clientId, date: null as string | null, type, title: v.title, notes: notes || "", script: isPost ? "" : v.script, hook: isPost ? "" : v.hook || "", cta: isPost ? "" : v.cta || "", caption: isPost ? postText : "", cycle_id: cycleId || null, footage_url: (footageUrl || "").trim(), published: false, current_stage: order[ti], stages };
     });
     setContentItems((list) => [...list, ...rows.map(({ client_id, ...r }) => ({ ...r, client: client_id }))]);
-    sb()?.from("content_items").insert(rows).then(({ error }) => error && console.error("[BrandMotion] importScripts failed:", error));
+    sb()?.from("content_items").insert(rows).select("id, cycle_id, delivered_at").then(({ data, error }) => {
+      if (error) { console.error("[BrandMotion] importScripts failed:", error); return; }
+      // Базата закача всяко видео към месец-пакет (0059) — взимаме го обратно.
+      const back = new Map((data || []).map((d) => [d.id as string, d]));
+      setContentItems((list) => list.map((c) => { const d = back.get(c.id); return d ? { ...c, cycle_id: d.cycle_id, delivered_at: d.delivered_at } : c; }));
+    });
     rows.forEach((r) => syncStageTask(r.id, r.title, clientId, r.current_stage, r.stages.find((s) => s.key === r.current_stage)?.assignee || "", type === "post" ? "Пост" : "Видео"));
     logActivity(`импортира ${videos.length} сценария за ${client?.name || clientId}`);
     // Scripts are in → flip this client's open cycle into production.
@@ -1131,6 +1209,72 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (done && c.corrections_by) notify(c.corrections_by, `Корекциите по „${c.title || "(без заглавие)"}“ са отстранени`, { entity_type: "content", entity_id: itemId, link: itemId });
   }, [contentItems, notify, persistItem]);
 
+  // ---- Защо стои видеото (0061) ----
+  // Причината важи за текущия етап — базата я чисти сама при преместване.
+  const setWaiting = useCallback((itemId: string, reason: WaitingOn, note = "") => {
+    const patch = { waiting_on: reason, waiting_note: reason ? note.trim() : "" };
+    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, ...patch, waiting_since: reason ? (x.waiting_on === reason ? x.waiting_since : new Date().toISOString()) : null } : x)));
+    persistItem(itemId, patch);
+  }, [persistItem]);
+
+  // Историята на етапите се чете при отваряне на видеото — не се държи в паметта за всички.
+  const loadStageEvents = useCallback(async (itemId: string): Promise<StageEvent[]> => {
+    const client = sb();
+    if (!client) return [];
+    const { data, error } = await client.from("content_stage_events").select("*").eq("content_item_id", itemId).order("changed_at", { ascending: true });
+    if (error) { console.error("[BrandMotion] loadStageEvents failed:", error); return []; }
+    return (data || []) as StageEvent[];
+  }, []);
+
+  // ---- Дневник на напомнянията за плащане (0064) ----
+  const loadReminderLog = useCallback(async (): Promise<ReminderLogRow[]> => {
+    const client = sb();
+    if (!client) return [];
+    const { data, error } = await client.from("reminder_log").select("invoice_id, stage, channel, sent_by, sent_at").order("sent_at", { ascending: false });
+    if (error) { console.error("[BrandMotion] loadReminderLog failed:", error); return []; }
+    return (data || []) as ReminderLogRow[];
+  }, []);
+  const logReminder = useCallback(async (invoiceId: string, stage: ReminderStage, channel: string): Promise<ReminderLogRow | null> => {
+    const row: ReminderLogRow = { invoice_id: invoiceId, stage, channel, sent_by: currentUser.initials, sent_at: new Date().toISOString() };
+    const client = sb();
+    if (client) {
+      const { error } = await client.from("reminder_log").upsert(row, { onConflict: "invoice_id,stage" });
+      if (error) { notifyError("Напомнянето не се отбеляза: " + error.message); return null; }
+    }
+    logActivity(`напомни за плащане по ${invoiceId}`, "admin");
+    return row;
+  }, [currentUser.initials, logActivity, notifyError]);
+
+  // ---- Преглед от клиента в портала ----
+  // Видеото става видимо за клиента (линк + бутони Одобрявам / Искам промени)
+  // чак когато екипът го изпрати оттук. Решението идва обратно през RPC
+  // portal_review и пристига по realtime канала на content_items.
+  const sendToClientReview = useCallback((itemId: string, url: string): boolean => {
+    const c = contentItems.find((x) => x.id === itemId);
+    const link = url.trim();
+    if (!c) return false;
+    if (!/^https?:\/\//i.test(link)) { notifyError("Сложи валиден линк към видеото (започващ с https://)."); return false; }
+    const patch = {
+      client_review_status: "sent" as const,
+      client_review_url: link,
+      client_review_feedback: "",
+      client_review_by: currentUser.initials,
+      client_review_sent_at: new Date().toISOString(),
+      client_review_decided_at: null,
+    };
+    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, ...patch } : x)));
+    persistItem(itemId, patch);
+    const name = clients.find((cl) => cl.id === c.client)?.name || c.client;
+    logActivity(`изпрати „${c.title || "(без заглавие)"}“ за преглед от ${name}`, "team");
+    return true;
+  }, [contentItems, clients, currentUser.initials, persistItem, logActivity, notifyError]);
+
+  const withdrawClientReview = useCallback((itemId: string) => {
+    const patch = { client_review_status: "" as const, client_review_decided_at: null };
+    setContentItems((list) => list.map((x) => (x.id === itemId ? { ...x, ...patch } : x)));
+    persistItem(itemId, patch);
+  }, [persistItem]);
+
   // Profile edits go through RLS: without the "profiles admin update" policy
   // (migration 0020) an admin's update of ANOTHER member matches 0 rows and
   // Supabase reports success — so we select the row back and treat 0 rows as
@@ -1238,9 +1382,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const publishedAt = f.published ? (prev?.published ? prev.published_at ?? null : new Date().toISOString()) : null;
     const patch = { date, type: f.type, title: f.title, notes: f.notes, script: f.script, hook: f.hook, hook_type: f.hook_type, cta: f.cta, caption: f.caption, footage_url: f.footage_url || "", thumbnail_url: f.thumbnail_url || "", final_url: f.final_url || "", published: f.published, published_at: publishedAt };
     setContentItems((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    sb()?.from("content_items").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateContentItem failed:", error));
+    // Смяна на месеца на пакета (само за видеа): намираме/отваряме цикъла.
+    const curMonth = cycles.find((c) => c.id === prev?.cycle_id)?.month || "";
+    const moveMonth = f.type !== "post" && !!f.cycle_month && f.cycle_month !== curMonth;
+    (async () => {
+      const client = sb();
+      if (!client) return;
+      const cycle_id = moveMonth && prev ? await resolveCycle(prev.client, f.cycle_month) : null;
+      const payload: typeof patch & { cycle_id?: string; cycle_manual?: boolean } = cycle_id ? { ...patch, cycle_id, cycle_manual: true } : patch;
+      const { data, error } = await client.from("content_items").update(payload).eq("id", id).select("id, cycle_id, delivered_at").single();
+      if (error) { console.error("[BrandMotion] updateContentItem failed:", error); notifyError(`Промяната по видеото не се запази: ${error.message || "неизвестна грешка"}`); return; }
+      if (data) setContentItems((list) => list.map((c) => (c.id === data.id ? { ...c, cycle_id: data.cycle_id, delivered_at: data.delivered_at } : c)));
+    })();
     setModal(null);
-  }, [contentItems]);
+  }, [contentItems, cycles, resolveCycle, notifyError]);
 
   // SIMULATED connect/disconnect until real OAuth is wired (see /api/oauth).
   const setClientConnection = useCallback((clientId: string, provider: ChannelProvider, connected: boolean) => {
@@ -1289,7 +1444,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const base = translit(f.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client-" + (Date.now() % 100000);
     setClients((list) => {
       const id = list.some((c) => c.id === base) ? base + "-" + (Date.now() % 10000) : base;
-      const row = { id, name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url };
+      const row = { id, name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url, videos_per_month: f.videos_per_month || null, payment_terms_days: f.payment_terms_days, billing_email: f.billing_email };
       sb()?.from("clients").insert(row).then(({ error }) => {
         if (error) {
           console.error("[BrandMotion] addClient failed:", error.message || error);
@@ -1303,12 +1458,98 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setModal(null);
   }, [logActivity, notifyError]);
 
+  // ---- CRM v2: бърз клиент + гъвкав пакет ----
+  const writePackageHistory = useCallback((clientId: string, pkg: ClientPackage) => {
+    const row = { client_id: clientId, valid_from: ymNow(), videos_per_month: pkg.videos_per_month, price: pkg.price, platforms: pkg.platforms, services: pkg.services };
+    sb()?.from("client_package_history").upsert(row, { onConflict: "client_id,valid_from" }).then(({ error }) => error && console.error("[BrandMotion] package history failed:", error));
+  }, []);
+
+  const createClientQuick = useCallback(async (f: QuickClientForm): Promise<string | null> => {
+    const base = translit(f.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client-" + (Date.now() % 100000);
+    const id = clients.some((c) => c.id === base) ? base + "-" + (Date.now() % 10000) : base;
+    const row = {
+      id, name: f.name.trim(), initials: initialsFrom(f.name), industry: f.industry.trim(), status: "Onboarding" as const,
+      mrr: Math.round(f.price || 0), owner: f.owner || currentUser.initials, health: "good" as const, note: f.note || "",
+      editor: f.editor || "", analysis_status: "not_started" as const, analysis_notes: "", brand_voice: "", target_audience: "", brand_assets_url: "",
+      videos_per_month: f.videos_per_month || null, platforms: f.platforms, services: f.services,
+      contract_months: f.contract_months || null, contract_start: f.contract_start || todayISO(),
+      payment_terms_days: f.payment_terms_days ?? 7, billing_email: f.billing_email || null, website: f.website || null,
+      onboarding: f.onboarding || {},
+    };
+    const client = sb();
+    if (client) {
+      const { error } = await client.from("clients").insert(row);
+      if (error) { notifyError(`Клиентът не се запази: ${error.message || "неизвестна грешка"}`); return null; }
+    }
+    setClients((list) => [...list, row as Client]);
+    writePackageHistory(id, { videos_per_month: f.videos_per_month || null, price: f.price || 0, platforms: f.platforms, services: f.services });
+    // Тригерът bm_client_quota_sync създава цикъла за текущия месец с целта от пакета.
+    if (f.videos_per_month) setCycles((list) => [{ id: `cy-${ymNow()}-${id}`, client: id, month: ymNow(), target_count: f.videos_per_month!, phase: "ideas" }, ...list]);
+    logActivity(`добави клиент ${row.name} · ${f.videos_per_month || "?"} видеа/мес`, "admin");
+    return id;
+  }, [clients, currentUser.initials, logActivity, notifyError, writePackageHistory]);
+
+  const saveClientPackage = useCallback((clientId: string, pkg: ClientPackage) => {
+    const patch: Partial<Client> = { videos_per_month: pkg.videos_per_month, mrr: Math.round(pkg.price || 0), platforms: pkg.platforms, services: pkg.services };
+    if (pkg.contract_months !== undefined) patch.contract_months = pkg.contract_months;
+    setClients((list) => list.map((c) => (c.id === clientId ? { ...c, ...patch } : c)));
+    if (pkg.videos_per_month) {
+      const ym = ymNow();
+      setCycles((list) => list.some((x) => x.client === clientId && x.month === ym)
+        ? list.map((x) => (x.client === clientId && x.month === ym ? { ...x, target_count: pkg.videos_per_month! } : x))
+        : [{ id: `cy-${ym}-${clientId}`, client: clientId, month: ym, target_count: pkg.videos_per_month!, phase: "ideas" }, ...list]);
+    }
+    sb()?.from("clients").update(patch).eq("id", clientId).then(({ error }) => {
+      if (error) notifyError(`Пакетът не се запази: ${error.message || "неизвестна грешка"}`);
+    });
+    writePackageHistory(clientId, pkg);
+    logActivity(`смени пакета на ${clients.find((c) => c.id === clientId)?.name || clientId}: ${pkg.videos_per_month || "?"} видеа/мес`, "admin");
+  }, [clients, logActivity, notifyError, writePackageHistory]);
+
+  const setClientStatus = useCallback((clientId: string, status: Client["status"]) => {
+    const churned_at = status === "Churned" ? new Date().toISOString() : null;
+    setClients((list) => list.map((c) => (c.id === clientId ? { ...c, status, churned_at } : c)));
+    sb()?.from("clients").update({ status, churned_at }).eq("id", clientId).then(({ error }) => error && notifyError(`Статусът не се запази: ${error.message}`));
+  }, [notifyError]);
+
+  // Постоянен ↔ проектен клиент (0065). Проектният остава с историята си, но
+  // излиза от месечните сметки, пакета и напомнянията.
+  const setClientEngagement = useCallback((clientId: string, engagement: "retainer" | "project") => {
+    const c = clients.find((x) => x.id === clientId);
+    setClients((list) => list.map((x) => (x.id === clientId ? { ...x, engagement } : x)));
+    sb()?.from("clients").update({ engagement }).eq("id", clientId).then(({ error }) => {
+      if (error) { notifyError(`Промяната не се запази: ${error.message}`); setClients((list) => list.map((x) => (x.id === clientId ? { ...x, engagement: c?.engagement } : x))); }
+    });
+    logActivity(`${engagement === "project" ? "премести в проектни" : "върна като постоянен"} клиент ${c?.name || clientId}`, "admin");
+  }, [clients, logActivity, notifyError]);
+
+  const setOnboardingCheck = useCallback((clientId: string, key: string, done: boolean) => {
+    const cur = clients.find((c) => c.id === clientId)?.onboarding || {};
+    const next = { ...cur, [key]: done };
+    setClients((list) => list.map((c) => (c.id === clientId ? { ...c, onboarding: next } : c)));
+    sb()?.from("clients").update({ onboarding: next }).eq("id", clientId).then(({ error }) => error && notifyError(`Чеклистът не се запази: ${error.message}`));
+  }, [clients, notifyError]);
+
+  // Пуска агента Strategist през Telegram бота: нов ред в client_pipeline със
+  // статус strategy_requested (тригерът уведомява бота, ботът пуска агента).
+  const startStrategy = useCallback(async (clientId: string) => {
+    const c = clients.find((x) => x.id === clientId);
+    const client = sb();
+    if (!c || !client) return false;
+    const brief = [`Клиент с подписан договор: ${c.name} (${c.industry}).`, c.website ? `Сайт/профил: ${c.website}` : "", c.videos_per_month ? `Пакет: ${c.videos_per_month} видеа/мес, ${c.mrr} €/мес.` : "", c.note || ""].filter(Boolean).join("\n");
+    const { data, error } = await client.from("client_pipeline").insert({ name: c.name, client_id: c.id, brief, status: "strategy_requested" }).select("id, client_id, name, status, updated_at").single();
+    if (error) { notifyError(`Стратегията не тръгна: ${error.message}`); return false; }
+    setPipeline((list) => [data as PipelineRow, ...list]);
+    logActivity(`пусна стратегия за ${c.name}`, "admin");
+    return true;
+  }, [clients, logActivity, notifyError]);
+
   const updateClient = useCallback((id: string, f: ClientForm) => {
     // „Напуснал" печата дата на напускане (за задържане/churn); връщане към
     // активен статус я изчиства. Пази съществуващата дата при повторно записване.
     const prev = clients.find((c) => c.id === id);
     const churned_at = f.status === "Churned" ? (prev?.churned_at || new Date().toISOString()) : null;
-    const patch = { name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url, churned_at };
+    const patch = { name: f.name, initials: initialsFrom(f.name), industry: f.industry, status: f.status, mrr: f.mrr, owner: f.owner, health: f.health, note: f.note, editor: f.editor, analysis_status: f.analysis_status, analysis_notes: f.analysis_notes, brand_voice: f.brand_voice, target_audience: f.target_audience, brand_assets_url: f.brand_assets_url, churned_at, videos_per_month: f.videos_per_month || null, payment_terms_days: f.payment_terms_days, billing_email: f.billing_email };
     setClients((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     sb()?.from("clients").update(patch).eq("id", id).then(({ error }) => {
       if (error) { console.error("[BrandMotion] updateClient failed:", error.message || error); notifyError(`Промяната по клиента не се запази: ${error.message || "неизвестна грешка"}`); }
@@ -1358,24 +1599,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // (по нея карат месечните сметки). Празно paid_at за неплатена фактура.
       const issued = f.issued || todayISO();
       const paid_at = f.status === "paid" ? (f.paid_at || todayISO()) : null;
-      const row = { id, client_id: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at };
-      sb()?.from("invoices").insert(row).then(({ error }) => error && console.error("[BrandMotion] addInvoice failed:", error));
-      return [{ id, client: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at }, ...list];
+      // period = ЗА кой месец е плащането (не кога е дошло) — по него е „По месеци“.
+      const period = f.period || issued.slice(0, 7);
+      const due_date = f.due_date || addDaysISO(issued, clients.find((c) => c.id === f.client)?.payment_terms_days ?? 7);
+      const row = { id, client_id: f.client, amount, status: f.status, issued, due: f.due || "—", due_date, paid_at, period };
+      sb()?.from("invoices").insert(row).then(({ error }) => { if (error) { console.error("[BrandMotion] addInvoice failed:", error); notifyError("Фактурата не се запази: " + error.message); } });
+      return [{ id, client: f.client, amount, status: f.status, issued, due: f.due || "—", due_date, paid_at, period }, ...list];
     });
     logActivity(`създаде фактура за ${clients.find((c) => c.id === f.client)?.name || f.client}`, "admin");
     setModal(null);
-  }, [clients, logActivity]);
+  }, [clients, logActivity, notifyError]);
 
   const updateInvoice = useCallback((id: string, f: InvoiceForm) => {
     const amount = Math.round((f.amount || 0) * 100) / 100;
     const issued = f.issued || todayISO();
     const paid_at = f.status === "paid" ? (f.paid_at || todayISO()) : null;
-    const patch = { client_id: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at };
-    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount, status: f.status, issued, due: f.due || "—", paid_at } : iv)));
+    const period = f.period || issued.slice(0, 7);
+    const due_date = f.due_date || addDaysISO(issued, clients.find((c) => c.id === f.client)?.payment_terms_days ?? 7);
+    const patch = { client_id: f.client, amount, status: f.status, issued, due: f.due || "—", due_date, paid_at, period };
+    setInvoices((list) => list.map((iv) => (iv.id === id ? { ...iv, client: f.client, amount, status: f.status, issued, due: f.due || "—", due_date, paid_at, period } : iv)));
     sb()?.from("invoices").update(patch).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] updateInvoice failed:", error));
     logActivity(`обнови фактура ${id}`, "admin");
     setModal(null);
-  }, [logActivity]);
+  }, [clients, logActivity]);
 
   const deleteInvoice = useCallback((id: string) => {
     setInvoices((list) => list.filter((iv) => iv.id !== id));
@@ -1391,6 +1637,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     sb()?.from("invoices").update({ status: "paid", paid_at }).eq("id", id).then(({ error }) => error && console.error("[BrandMotion] markPaid failed:", error));
     logActivity(`отбеляза ${id} като платена`, "admin");
   }, [logActivity]);
+
+  // Корекция на очакваното от клиент за конкретен месец; null връща таксата.
+  const setMonthTarget = useCallback((clientId: string, month: string, amount: number | null, note = "") => {
+    if (amount === null) {
+      setMonthTargets((list) => list.filter((t) => !(t.client_id === clientId && t.month === month)));
+      sb()?.from("client_month_targets").delete().eq("client_id", clientId).eq("month", month).then(({ error }) => { if (error) notifyError("Корекцията не се изтри: " + error.message); });
+      return;
+    }
+    const row: MonthTarget = { client_id: clientId, month, amount: Math.max(0, Math.round(amount * 100) / 100), note: note.trim() };
+    setMonthTargets((list) => [...list.filter((t) => !(t.client_id === clientId && t.month === month)), row]);
+    sb()?.from("client_month_targets").upsert({ ...row, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) notifyError("Корекцията не се запази: " + error.message); });
+  }, [notifyError]);
 
   // ---- Tasks ----
   // Admin-created tasks are private (admin + assignee) unless "видима за целия
@@ -1722,11 +1980,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [payRpc]);
 
   const value: Store = {
+    pipeline, createClientQuick, saveClientPackage, setClientStatus, setOnboardingCheck, setClientEngagement, startStrategy, setWaiting, loadStageEvents, loadReminderLog, logReminder,
     clients, invoices, tasks, payRoles, videoEarnings, workerPackages, packageProgress, workerOwed, payouts, videoRates, activity, notifications, team, comments, leads, contentItems, cycles, approvals, currentUser, loading, usingMock: !supabaseConfigured, signOut,
     requestApproval, requestBatchApproval, dismissSuggestion,
     addComment, notify, markNotificationRead, markAllNotificationsRead, registerPush, addLead, updateLead, deleteLead, moveLead, onboardLead, startCycle, advanceCycle,
     addContentItem, updateContentItem, deleteContentItem, importScripts, scheduleContent, clientConnections, setClientConnection,
-    advanceStage, completeVideo, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
+    advanceStage, completeVideo, setStageAssignee, setStageStatus, saveCorrections, setCorrectionsDone, sendToClientReview, withdrawClientReview, monthTargets, setMonthTarget, updateMemberRoles, updateMemberRole, updateMemberClients, uploadMemberAvatar, removeMemberAvatar, deleteMember, approveMember, changePassword, visibleClients,
     videoMetrics, saveVideoMetrics, getPortalLink, brandProfiles, saveBrandAnswers,
     bookings, addBooking, deleteBooking, approveBooking, declineBooking, getBookingFeedUrl,
     modal, openModal: setModal, closeModal: () => setModal(null),

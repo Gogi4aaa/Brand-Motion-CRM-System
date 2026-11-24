@@ -28,6 +28,19 @@ export interface Client {
   created_at?: string;              // кога е добавен клиентът (за задържане)
   archived_at?: string | null;      // архивиран: скрит от списъците, но историята му остава
   churned_at?: string | null;       // кога е напуснал (status="Churned")
+  // ---- Договор (0059) ----
+  videos_per_month?: number | null; // договорени видеа на месец (8/10/12); празно = не е зададено
+  payment_terms_days?: number;      // срок за плащане в дни след издаване на фактурата
+  billing_email?: string;           // имейл за фактури и напомняния
+  contract_start?: string | null;   // начало на работата с клиента
+  // 'project' = не е постоянен клиент (0065): пази се с историята си, но без месечна такса, пакет и напомняния
+  engagement?: "retainer" | "project";
+  // ---- Пакет (CRM v2) ----
+  platforms?: string[];             // къде публикуваме: facebook, instagram, tiktok, youtube
+  services?: string[];              // какво включва пакетът
+  contract_months?: number | null;  // срок на договора в месеци (празно = безсрочен)
+  website?: string | null;
+  onboarding?: Record<string, boolean>; // чеклист за старт: access_meta, access_ig, access_tiktok, brand_assets
 }
 export const clientStatusMeta = (s: ClientStatus) =>
   ({
@@ -51,8 +64,11 @@ export interface Invoice {
   amount: number;
   status: InvStatus;
   issued: string;      // ISO ден (YYYY-MM-DD) — кога е издадена фактурата
-  due: string;
+  due: string;              // стар свободен текст — вече не се ползва за сметки
+  due_date?: string | null; // ISO ден — падеж (0062): издаване + срока на клиента
+  payment_method?: string;
   paid_at?: string | null; // ISO ден — кога е платена; по нея карат месечните сметки
+  period?: string | null;  // 'YYYY-MM' — ЗА кой месец е плащането (0058); по него е „Събиране по месеци“
   created_at?: string; // set by the DB; кога е въведен редът (не е дата на издаване)
 }
 
@@ -484,7 +500,7 @@ export function receivablesAging(invoices: Invoice[]): AgingBucket[] {
     unknown: { label: "Без падеж",    amount: 0, count: 0, tone: "muted" },
   };
   for (const i of open) {
-    const t = parseDay(i.due);
+    const t = parseDay(i.due_date || i.due);
     let k: keyof typeof b;
     if (Number.isNaN(t)) k = "unknown";
     else {
@@ -802,6 +818,9 @@ export const revenueByMonth = (invoices: Invoice[], n = 12) => {
 // Клиентите за избор и списъци — без архивираните. Анализите НЕ ползват това:
 // там архивираните трябва да се броят, иначе миналият приход изчезва от отчета.
 export const activeClients = (list: Client[]) => list.filter((c) => !c.archived_at);
+// Постоянните клиенти — тези, от които се очаква месечна такса и пакет.
+export const isProjectClient = (c: Client) => c.engagement === "project";
+export const retainerClients = (list: Client[]) => list.filter((c) => !c.archived_at && c.status !== "Churned" && !isProjectClient(c));
 
 export const clientsById = (list: Client[]) =>
   Object.fromEntries(list.map((c) => [c.id, c])) as Record<string, Client>;
@@ -831,7 +850,7 @@ export const invStatusMeta = (s: InvStatus) =>
 export const taskStatusLabel = (s: TaskStatus) =>
   ({ todo: "За правене", inprogress: "В процес", review: "За преглед", done: "Готово" }[s]);
 
-export type LeadStage = "new" | "meeting" | "proposal" | "won" | "lost";
+export type LeadStage = "new" | "meeting" | "proposal" | "won" | "lost" | "waiting";
 // Откъде идва лийдът. „referral" отключва връзка към препоръчалия (клиент/име).
 export type LeadSource = "cold" | "referral" | "inbound" | "social" | "event" | "other";
 
@@ -846,6 +865,9 @@ export interface Lead {
   referred_by_client_id?: string | null; // при „Препоръка": свързан съществуващ клиент
   referred_by_name?: string;             // …или свободно име на външен препоръчител
   client_id?: string | null; // set once the won lead is onboarded into a client
+  videos_per_month?: number | null; // договорени видеа на месец — пренасят се в клиента (0059)
+  monthly_fee?: number | null;      // договорена месечна такса (value е общата стойност на сделката)
+  stage_changed_at?: string | null; // откога е в текущия етап (0066)
 }
 
 export const PIPELINE_STAGES: { key: LeadStage; title: string; dot: string }[] = [
@@ -854,6 +876,8 @@ export const PIPELINE_STAGES: { key: LeadStage; title: string; dot: string }[] =
   { key: "proposal", title: "Оферта", dot: "var(--bm-warning-500)" },
   { key: "won", title: "Спечелени", dot: "var(--bm-success-500)" },
   { key: "lost", title: "Загубени", dot: "var(--bm-danger-500)" },
+  // Последна колона: чакаме решение от клиента и нищо не се движи (0066).
+  { key: "waiting", title: "На изчакване", dot: "var(--bm-slate-400)" },
 ];
 
 export const leadStageMeta = (s: LeadStage) =>
@@ -863,6 +887,7 @@ export const leadStageMeta = (s: LeadStage) =>
     proposal: { cls: "bm-badge--warning", label: "Оферта" },
     won: { cls: "bm-badge--success", label: "Спечелен" },
     lost: { cls: "bm-badge--danger", label: "Загубен" },
+    waiting: { cls: "bm-badge--neutral", label: "На изчакване" },
   }[s]);
 
 export const LEAD_SOURCES: { id: LeadSource; label: string }[] = [
@@ -915,7 +940,14 @@ export interface ContentItem {
   cta?: string; // closing call to action
   caption?: string; // platform caption for publishing
   hashtags?: string; // стари данни — полето отпадна от формата (AI ги слага в caption)
-  cycle_id?: string | null; // monthly cycle this video belongs to (set on import)
+  cycle_id?: string | null; // месецът-пакет, към който се брои видеото (0059: базата го слага сама, ако липсва)
+  cycle_manual?: boolean;       // месецът е избран ръчно; иначе базата го слага при предаване (0065)
+  delivered_at?: string | null; // кога реално е станало готово (стигнало „Публикуване“/публикувано)
+  // ---- Движение (0061) ----
+  stage_entered_at?: string | null; // откога е в текущия етап (слага го базата)
+  waiting_on?: WaitingOn;           // защо стои; '' = не чака нищо. Чисти се при смяна на етапа.
+  waiting_note?: string;
+  waiting_since?: string | null;
   notion_url?: string; // стари данни — полето отпадна от формата
   footage_url?: string; // линк към суровия материал (Drive папка от снимачния ден)
   thumbnail_url?: string; // „Линк за снимка на видеото“ — Drive линк, всеки може да сменя
@@ -928,9 +960,24 @@ export interface ContentItem {
   corrections_done?: boolean;
   corrections_by?: string; // инициали на автора
   corrections_at?: string | null;
+  // Преглед от клиента в портала (миграция 0057): '' = не е изпращано.
+  client_review_status?: ClientReviewStatus;
+  client_review_url?: string; // линкът, който клиентът вижда (обикновено готовият вариант)
+  client_review_feedback?: string; // какво иска да се промени
+  client_review_by?: string; // инициали на изпратилия
+  client_review_sent_at?: string | null;
+  client_review_decided_at?: string | null;
   current_stage?: string;
   stages?: StageState[];
 }
+
+export type ClientReviewStatus = "" | "sent" | "approved" | "changes";
+export const clientReviewMeta = (s: ClientReviewStatus | undefined) =>
+  ({
+    sent: { cls: "bm-badge--warning", label: "Чака клиента", short: "👀 При клиента" },
+    approved: { cls: "bm-badge--success", label: "Одобрено от клиента", short: "✓ Клиентът одобри" },
+    changes: { cls: "bm-badge--danger", label: "Клиентът иска промени", short: "✎ Клиентът иска промени" },
+  }[s as "sent" | "approved" | "changes"] ?? null);
 
 // Ако линкът сочи към конкретен файл в Google Drive, връща URL за вградена
 // картинка-преглед (thumbnail endpoint-а на Drive). За папки/непознати линкове
@@ -1023,18 +1070,9 @@ export const ONBOARDING_TASKS: { title: string; priority: Priority }[] = [
   { title: "Потвърди съдържателния план с клиента", priority: "medium" },
 ];
 
-// Content packages seed the backlog with a month's worth of videos on onboarding.
-export interface ContentPackage {
-  id: string;
-  label: string;
-  items: { type: ContentType; count: number }[];
-}
-export const CONTENT_PACKAGES: ContentPackage[] = [
-  { id: "starter", label: "Стартов — 8 видеа/мес", items: [{ type: "reel", count: 4 }, { type: "post", count: 4 }] },
-  { id: "growth", label: "Растеж — 16 видеа/мес", items: [{ type: "reel", count: 8 }, { type: "post", count: 6 }, { type: "promo", count: 2 }] },
-  { id: "pro", label: "Про — 24 видеа/мес", items: [{ type: "reel", count: 12 }, { type: "post", count: 8 }, { type: "promo", count: 4 }] },
-];
-export const packageItemCount = (pkg: ContentPackage) => pkg.items.reduce((n, i) => n + i.count, 0);
+// Месечните пакети са САМО видеа: 8, 10 или 12. Договорената бройка се пази в
+// clients.videos_per_month и оттам се отваря цикълът на всеки месец (0059).
+export const VIDEO_PACKAGES = [8, 10, 12] as const;
 
 // ---- Monthly content cycle (per client) ----
 export type CyclePhase = "ideas" | "scripts" | "production" | "published";
@@ -1045,6 +1083,104 @@ export interface ContentCycle {
   target_count: number;
   phase: CyclePhase;
 }
+// ---- Движение на видеото (0061): откога е в етапа и защо стои -----------------
+export type WaitingOn = "" | "client" | "footage" | "shoot" | "team" | "other";
+export const WAITING_REASONS: { id: Exclude<WaitingOn, "">; label: string; short: string }[] = [
+  { id: "client", label: "Чака клиента", short: "клиента" },
+  { id: "footage", label: "Чака материал", short: "материал" },
+  { id: "shoot", label: "Чака снимачен ден", short: "снимки" },
+  { id: "team", label: "Чака човек от екипа", short: "екипа" },
+  { id: "other", label: "Друго", short: "друго" },
+];
+export const waitingMeta = (w?: WaitingOn) => WAITING_REASONS.find((r) => r.id === w) || null;
+export interface StageEvent { id: number; content_item_id: string; from_stage: string | null; to_stage: string; changed_by: string; changed_at: string; days_in_prev: number | null }
+const wholeDays = (iso?: string | null, now = new Date()) => {
+  if (!iso) return 0;
+  const t = new Date(iso.length === 10 ? iso + "T00:00:00" : iso).getTime();
+  return Number.isNaN(t) ? 0 : Math.max(0, Math.floor((now.getTime() - t) / 86400000));
+};
+export const daysInStage = (ci: ContentItem, now = new Date()) => wholeDays(ci.stage_entered_at, now);
+// Прагове: колко дни в един етап са „заседнало“ и колко — тревожно.
+export const STUCK_DAYS = 7;
+export const STUCK_DAYS_HARD = 14;
+// Състояние на видео в работа. Редът е по тежест: закъснява > чака > заседнало > изтича.
+export type HealthLevel = "late" | "waiting" | "stuck" | "soon" | "ok";
+export interface VideoHealth { level: HealthLevel; label: string; badge: string; days: number; score: number }
+export function videoHealth(ci: ContentItem, now = new Date()): VideoHealth | null {
+  if (ci.published) return null;
+  const days = daysInStage(ci, now);
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const ready = ci.current_stage === "publish";
+  if (ci.date && ci.date < today) {
+    const over = wholeDays(ci.date, now);
+    return { level: "late", label: ready ? `не е публикувано · ${over}д след датата` : `закъснява с ${over}д`, badge: "bm-badge--danger", days, score: 1000 + over };
+  }
+  const w = waitingMeta(ci.waiting_on);
+  if (w) {
+    const wd = wholeDays(ci.waiting_since, now);
+    return { level: "waiting", label: `чака ${w.short} · ${wd}д`, badge: wd >= 5 ? "bm-badge--danger" : "bm-badge--info", days, score: 500 + wd };
+  }
+  if (!ready && days >= STUCK_DAYS) return { level: "stuck", label: `${days}д в етапа`, badge: days >= STUCK_DAYS_HARD ? "bm-badge--danger" : "bm-badge--warning", days, score: 300 + days };
+  if (!ready && ci.date) {
+    const left = Math.ceil((new Date(ci.date + "T00:00:00").getTime() - now.getTime()) / 86400000);
+    if (left <= 2) return { level: "soon", label: left <= 0 ? "датата е днес" : `остават ${left}д`, badge: "bm-badge--warning", days, score: 200 - left };
+  }
+  return { level: "ok", label: ready ? "готово за публикуване" : days >= 1 ? `${days}д в етапа` : "днес", badge: "bm-badge--neutral", days, score: days };
+}
+
+// ---- Изпълнение на пакета по месеци (0059) ---------------------------------
+// Видеото се брои към месеца на ПАКЕТА (cycle_id), не към датата, на която е
+// станало готово. „Готово“ = има delivered_at (стигнало е „Публикуване“ или е
+// публикувано). Постовете не влизат в бройката.
+export const isVideo = (ci: ContentItem) => ci.type !== "post";
+export const isDelivered = (ci: ContentItem) => !!ci.delivered_at || !!ci.published || ci.current_stage === "publish";
+// Последният ден на месец 'YYYY-MM' като ISO ден.
+export const monthEndISO = (key: string) => {
+  const [y, m] = key.split("-").map(Number);
+  return `${key}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+};
+// Предадено след края на месеца на пакета → закъсняло.
+export const deliveredLate = (ci: ContentItem, month: string) =>
+  !!ci.delivered_at && ci.delivered_at.slice(0, 10) > monthEndISO(month);
+export interface CycleProgress {
+  cycle: ContentCycle;
+  videos: ContentItem[]; // готовите видеа за месеца (видеата в работа не са „за месеца“ и не се показват тук)
+  done: number;          // = videos.length
+  late: number;          // готови, но след края на месеца
+  target: number;        // договорена бройка (0 = не е зададена)
+  remaining: number;     // max(0, target − done)
+}
+// Месецът показва само ГОТОВОТО за него. Идея или сценарий, закачени към месец
+// автоматично (защото още нямат дата), не са „видео за месеца“, докато не станат готови.
+export function cycleProgress(cycle: ContentCycle, items: ContentItem[]): CycleProgress {
+  const videos = items.filter((ci) => ci.cycle_id === cycle.id && isVideo(ci) && isDelivered(ci));
+  const done = videos.length;
+  return { cycle, videos, done, late: videos.filter((v) => deliveredLate(v, cycle.month)).length, target: cycle.target_count, remaining: Math.max(0, cycle.target_count - done) };
+}
+// Всички месеци на един клиент, най-новият първи.
+export const clientCycleProgress = (clientId: string, cycles: ContentCycle[], items: ContentItem[]) =>
+  cycles.filter((c) => c.client === clientId).sort((a, b) => b.month.localeCompare(a.month)).map((c) => cycleProgress(c, items));
+// Изпълнението за един месец по клиенти. Клиент без цикъл за месеца се показва
+// с договорената си бройка и 0 готови (цикълът се отваря от базата през нощта).
+export interface ClientMonthProgress { client: Client; target: number; done: number; total: number; late: number; cycleId: string | null }
+export function monthProgress(clients: Client[], cycles: ContentCycle[], items: ContentItem[], key: string): ClientMonthProgress[] {
+  return clients.map((client) => {
+    const cy = cycles.find((c) => c.client === client.id && c.month === key);
+    if (!cy) return { client, target: client.videos_per_month || 0, done: 0, total: 0, late: 0, cycleId: null };
+    const p = cycleProgress(cy, items);
+    return { client, target: p.target, done: p.done, total: p.videos.length, late: p.late, cycleId: cy.id };
+  });
+}
+// Очакван дял от бройката към днешна дата (равномерно през месеца) — за знак
+// „изостава“. За минал месец = цялата бройка, за бъдещ = 0.
+export function expectedByToday(target: number, key: string, now = new Date()) {
+  const cur = monthKey(now);
+  if (key < cur) return target;
+  if (key > cur) return 0;
+  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return Math.floor((target * now.getDate()) / days);
+}
+
 // Each phase maps to the production role that owns it — used to notify the right
 // person when a cycle advances ('' = nobody to notify).
 export const CYCLE_PHASES: { key: CyclePhase; label: string; role: string; dot: string }[] = [
@@ -1064,9 +1200,141 @@ export const monthLabel = (key: string) => {
   return `${BG_MONTHS[(m || 1) - 1]} ${y}`;
 };
 
+// ---- Събиране по месеци (0058) --------------------------------------------
+// Кой колко е платил ЗА даден месец и колко още дължи. Правилото е огледало на
+// SQL функцията bm_month_collections (тя храни автоматичното напомняне) —
+// пипаш ли едното, пипни и другото.
+export interface MonthTarget { client_id: string; month: string; amount: number; note: string }
+export interface CollectionRow {
+  client: Client;
+  expected: number;
+  paid: number;
+  remaining: number; // max(0, expected − paid)
+  overpaid: number;  // max(0, paid − expected)
+  hasOverride: boolean;
+  note: string;
+  invoices: Invoice[]; // всички фактури за месеца (платени и не)
+}
+export const invoicePeriod = (i: Invoice) => i.period || (i.issued || "").slice(0, 7);
+const cents = (n: number) => Math.round(n * 100) / 100;
+export function monthCollections(clients: Client[], invoices: Invoice[], targets: MonthTarget[], key: string): CollectionRow[] {
+  const [y, m] = key.split("-").map(Number);
+  const start = new Date(Date.UTC(y, m - 1, 1)).getTime();
+  const end = new Date(Date.UTC(y, m, 1)).getTime();
+  const ts = (iso?: string | null) => (iso ? new Date(iso).getTime() : NaN);
+  const rows: CollectionRow[] = [];
+  for (const c of clients) {
+    const t = targets.find((x) => x.client_id === c.id && x.month === key);
+    const created = ts(c.created_at);
+    const churned = ts(c.churned_at);
+    const alive = !c.archived_at
+      && c.engagement !== "project" // проектните нямат месечна такса
+      && (Number.isNaN(created) || created < end)
+      && (c.status !== "Churned" || (!Number.isNaN(churned) && churned >= start))
+      && (Number.isNaN(churned) || churned >= start);
+    const expected = cents(t ? Number(t.amount) || 0 : alive ? c.mrr || 0 : 0);
+    const inv = invoices.filter((i) => i.client === c.id && invoicePeriod(i) === key);
+    if (expected <= 0 && inv.length === 0) continue;
+    const paid = cents(inv.filter((i) => i.status === "paid").reduce((a, i) => a + (Number(i.amount) || 0), 0));
+    rows.push({
+      client: c, expected, paid,
+      remaining: cents(Math.max(0, expected - paid)),
+      overpaid: cents(Math.max(0, paid - expected)),
+      hasOverride: !!t, note: t?.note || "", invoices: inv,
+    });
+  }
+  return rows.sort((a, b) => b.remaining - a.remaining || a.client.name.localeCompare(b.client.name, "bg"));
+}
+
 export const TASK_COLUMNS: { key: TaskStatus; title: string; dot: string }[] = [
   { key: "todo", title: "To do", dot: "var(--bm-slate-400)" },
   { key: "inprogress", title: "In progress", dot: "var(--bm-info-500)" },
   { key: "review", title: "In review", dot: "var(--bm-warning-500)" },
   { key: "done", title: "Done", dot: "var(--bm-success-500)" },
 ];
+
+// ---- Падежи и платежно поведение (0062) -----------------------------------
+export const addDaysISO = (iso: string, n: number) => {
+  const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const dayDiff = (a: string, b: string) => Math.round((parseDay(a) - parseDay(b)) / 86400000);
+// Неплатена фактура: колко дни е след падежа (0 = още не е паднала).
+export const daysOverdue = (i: Invoice, today = todayISO()) =>
+  i.status === "paid" || i.status === "draft" || !i.due_date ? 0 : Math.max(0, dayDiff(today, i.due_date));
+// Платена фактура: с колко дни след срока са дошли парите (0 = навреме).
+// Плащане, записано направо като платено (без предварително издадена фактура),
+// няма падеж — мерим го спрямо края на месеца, ЗА който е.
+export function paidLateDays(i: Invoice): number | null {
+  if (i.status !== "paid" || !i.paid_at) return null;
+  if (i.issued === i.paid_at) { const p = invoicePeriod(i); return p ? Math.max(0, dayDiff(i.paid_at, monthEndISO(p))) : 0; }
+  return i.due_date ? Math.max(0, dayDiff(i.paid_at, i.due_date)) : 0;
+}
+export type PayMonthState = "ontime" | "late" | "partial" | "unpaid" | "due" | "none";
+export type PayGrade = "А" | "Б" | "В" | "Г" | "—";
+export interface PaymentStats {
+  client: Client;
+  paidCount: number;         // платени фактури (основата на оценката)
+  lateCount: number;
+  onTimeRate: number | null; // 0..1; null = още няма плащания
+  avgLate: number;           // средно дни закъснение при закъснелите
+  maxLate: number;
+  overdueAmount: number;     // просрочено в момента
+  overdueDays: number;       // най-старото просрочие в дни
+  openAmount: number;        // чака плащане, още не е паднало
+  grade: PayGrade;
+  months: { key: string; state: PayMonthState; paid: number; expected: number }[];
+}
+export function clientPaymentStats(client: Client, invoices: Invoice[], targets: MonthTarget[], monthsBack = 6): PaymentStats {
+  const mine = invoices.filter((i) => i.client === client.id);
+  const lates = mine.map(paidLateDays).filter((d): d is number => d !== null);
+  const late = lates.filter((d) => d > 0);
+  const open = mine.filter((i) => i.status === "pending" || i.status === "overdue");
+  const od = open.filter((i) => daysOverdue(i) > 0);
+  const onTimeRate = lates.length ? (lates.length - late.length) / lates.length : null;
+  const overdueDays = od.length ? Math.max(...od.map((i) => daysOverdue(i))) : 0;
+  const grade: PayGrade =
+    !lates.length && !od.length ? "—"
+    : overdueDays > 30 || (onTimeRate !== null && onTimeRate < 0.5) ? "Г"
+    : overdueDays > 0 || (onTimeRate !== null && onTimeRate < 0.75) ? "В"
+    : late.length ? "Б" : "А";
+  const cur = monthKey();
+  const months: PaymentStats["months"] = [];
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (monthsBack - 1));
+  for (let n = 0; n < monthsBack; n++, d.setMonth(d.getMonth() + 1)) {
+    const key = monthKey(d);
+    const row = monthCollections([client], invoices, targets, key)[0];
+    const paid = row?.paid || 0, expected = row?.expected || 0;
+    const wasLate = (row?.invoices || []).some((i) => (paidLateDays(i) || 0) > 0);
+    const state: PayMonthState =
+      expected <= 0 && paid <= 0 ? "none"
+      : paid >= expected && paid > 0 ? (wasLate ? "late" : "ontime")
+      : paid > 0 ? "partial"
+      : key === cur ? "due" : "unpaid";
+    months.push({ key, state, paid, expected });
+  }
+  return {
+    client, paidCount: lates.length, lateCount: late.length, onTimeRate,
+    avgLate: late.length ? Math.round(late.reduce((a, b) => a + b, 0) / late.length) : 0,
+    maxLate: late.length ? Math.max(...late) : 0,
+    overdueAmount: cents(od.reduce((a, i) => a + (i.amount || 0), 0)), overdueDays,
+    openAmount: cents(open.filter((i) => daysOverdue(i) === 0).reduce((a, i) => a + (i.amount || 0), 0)),
+    grade, months,
+  };
+}
+// Какво да очакваш следващите месеци: договореното срещу това, което вероятно
+// ще дойде навреме според досегашните навици. Клиент без история се брои за
+// 75% надежден — оценка, не обещание.
+export interface CashForecastMonth { key: string; contracted: number; likely: number; atRisk: number }
+export function cashForecast(stats: PaymentStats[], monthsAhead = 3): CashForecastMonth[] {
+  const live = stats.filter((s) => !s.client.archived_at && s.client.status !== "Churned" && s.client.engagement !== "project" && (s.client.mrr || 0) > 0);
+  const out: CashForecastMonth[] = [];
+  const d = new Date(); d.setDate(1);
+  for (let n = 0; n < monthsAhead; n++) {
+    d.setMonth(d.getMonth() + 1);
+    const contracted = live.reduce((a, s) => a + s.client.mrr, 0);
+    const likely = live.reduce((a, s) => a + s.client.mrr * (s.overdueDays > 30 ? Math.min(s.onTimeRate ?? 0.5, 0.5) : s.onTimeRate ?? 0.75), 0);
+    out.push({ key: monthKey(d), contracted: cents(contracted), likely: cents(likely), atRisk: cents(contracted - likely) });
+  }
+  return out;
+}

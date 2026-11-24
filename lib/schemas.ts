@@ -14,6 +14,10 @@ export const clientSchema = z.object({
   brand_voice: z.string(),
   target_audience: z.string(),
   brand_assets_url: z.string(),
+  // 0 = още не е зададена (в базата се пази като празно)
+  videos_per_month: z.number({ message: "Въведи число" }).int("Цяло число").min(0, "0 или повече").max(200, "Твърде много"),
+  payment_terms_days: z.number({ message: "Въведи число" }).int("Цяло число").min(0, "0 или повече").max(120, "Най-много 120 дни"),
+  billing_email: z.string().trim().refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Невалиден имейл"),
 });
 export type ClientForm = z.infer<typeof clientSchema>;
 
@@ -23,7 +27,7 @@ export const onboardSchema = z.object({
   mrr: z.number({ message: "Въведи число" }).min(0, "0 или повече"),
   owner: z.string().trim().min(1, "Отговорникът е задължителен"),
   editor: z.string(),
-  packageId: z.string().min(1, "Избери пакет"),
+  videos_per_month: z.number({ message: "Въведи брой видеа" }).int("Цяло число").min(1, "Поне 1 видео").max(200, "Твърде много"),
 });
 export type OnboardForm = z.infer<typeof onboardSchema>;
 
@@ -42,11 +46,13 @@ export const leadSchema = z.object({
   name: z.string().trim().min(1, "Deal name is required"),
   contact: z.string().trim(),
   value: z.number({ message: "Enter a number" }).min(0, "Must be 0 or more"),
-  stage: z.enum(["new", "meeting", "proposal", "won", "lost"]),
+  stage: z.enum(["new", "meeting", "proposal", "won", "lost", "waiting"]),
   owner: z.string().trim().min(1, "Owner is required"),
   source: z.enum(["cold", "referral", "inbound", "social", "event", "other"]),
   referred_by_client_id: z.string().trim(), // празно = няма свързан клиент
   referred_by_name: z.string().trim(),      // свободно име на препоръчител
+  videos_per_month: z.number({ message: "Въведи число" }).int("Цяло число").min(0, "0 или повече").max(200, "Твърде много"), // 0 = още не е договорено
+  monthly_fee: z.number({ message: "Въведи число" }).min(0, "0 или повече"),
 });
 export type LeadForm = z.infer<typeof leadSchema>;
 
@@ -64,6 +70,7 @@ export const contentItemSchema = z.object({
   thumbnail_url: z.string().trim(),
   final_url: z.string().trim(),
   published: z.boolean(),
+  cycle_month: z.string(), // 'YYYY-MM' — месецът на пакета; празно = базата избира (месецът на датата/текущият)
 });
 export type ContentItemForm = z.infer<typeof contentItemSchema>;
 
@@ -95,6 +102,8 @@ export const invoiceSchema = z.object({
   status: z.enum(["paid", "pending", "overdue", "draft"]),
   issued: z.string().min(1, "Избери дата на издаване"),
   due: z.string(),
+  due_date: z.string().optional(), // ISO ден; празно = издаване + срока на клиента
   paid_at: z.string().optional(),
+  period: z.string().optional(), // 'YYYY-MM' — за кой месец е; празно = месецът на издаване
 });
 export type InvoiceForm = z.infer<typeof invoiceSchema>;

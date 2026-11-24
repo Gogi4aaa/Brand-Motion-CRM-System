@@ -5,6 +5,9 @@ import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { clientsById, invStatusMeta, fmtK, fmtFull, monthStart, parseDay, fmtDay, type InvStatus } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
+import { MonthCollections } from "@/components/MonthCollections";
+import { DueLabel } from "@/components/PaymentBehavior";
+import { PaymentReminders } from "@/components/PaymentReminders";
 
 function Kpi({ label, value, color, deltaCls, delta }: { label: string; value: React.ReactNode; color?: string; deltaCls: string; delta: string }) {
   return (
@@ -21,6 +24,8 @@ const TABS: [string, string][] = [["all", "Всички"], ["paid", "Плате�
 export default function InvoicesPage() {
   const { clients, invoices, markPaid, deleteInvoice, openModal, currentUser } = useStore();
   const [filter, setFilter] = useState("all");
+  // „По месеци“ = кой колко дължи за месеца; „Всички фактури“ = пълният списък.
+  const [view, setView] = useState<"month" | "all">("month");
   const byId = clientsById(clients);
 
   const outstanding = invoices.filter((i) => i.status === "pending" || i.status === "overdue");
@@ -52,6 +57,16 @@ export default function InvoicesPage() {
         <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "invoice", mode: "create" })}><Icon name="plus" /> Нова фактура</button>
       </div>
 
+      <PaymentReminders />
+
+      <div className="bm-tabs">
+        <button role="tab" className="bm-tab" aria-selected={view === "month"} onClick={() => setView("month")}>По месеци</button>
+        <button role="tab" className="bm-tab" aria-selected={view === "all"} onClick={() => setView("all")}>Всички фактури</button>
+      </div>
+
+      {view === "month" && <MonthCollections />}
+
+      {view === "all" && (<>
       <section className="bm-stats">
         <Kpi label="Несъбрани" value={<Money>{fmtK(sum(outstanding))}</Money>} deltaCls="bm-text-subtle" delta={`${outstanding.length} отворени фактури`} />
         <Kpi label="Просрочени" value={<Money>{fmtK(sum(overdue))}</Money>} color="var(--bm-danger-600)" deltaCls="bm-stat__delta--down" delta={`${overdue.length} изискват внимание`} />
@@ -81,7 +96,8 @@ export default function InvoicesPage() {
                   <span className={"bm-badge " + m.cls}>{m.label}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", fontFamily: "var(--bm-font-mono)" }}>{iv.id} · {fmtDay(iv.issued)}{iv.due ? ` → ${iv.due}` : ""}</span>
+                  <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)", fontFamily: "var(--bm-font-mono)" }}>{iv.id} · {fmtDay(iv.issued)}</span>
+                  <DueLabel iv={iv} />
                   <span style={{ fontWeight: 700 }}><Money>{fmtFull(iv.amount)}</Money></span>
                 </div>
                 <div style={{ display: "flex", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
@@ -112,7 +128,7 @@ export default function InvoicesPage() {
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
                     <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{fmtDay(iv.issued)}</td>
-                    <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
+                    <td><DueLabel iv={iv} /></td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "flex", gap: "var(--bm-space-2)", justifyContent: "flex-end" }}>
                         {canPay && <button className="bm-btn bm-btn--secondary bm-btn--sm" onClick={() => markPaid(iv.id)}>Маркирай платена</button>}
@@ -124,14 +140,14 @@ export default function InvoicesPage() {
                             onClick={() =>
                               openModal({
                                 kind: "confirm",
-                                title: "Delete invoice?",
-                                message: `Delete ${iv.id}? This can't be undone.`,
-                                confirmLabel: "Delete",
+                                title: "Изтриване на фактура?",
+                                message: `Изтрий ${iv.id}? Действието е необратимо.`,
+                                confirmLabel: "Изтрий",
                                 onConfirm: () => deleteInvoice(iv.id),
                               })
                             }
                           >
-                            Delete
+                            Изтрий
                           </button>
                         )}
                       </div>
@@ -143,6 +159,7 @@ export default function InvoicesPage() {
           </table>
         </div>
       </div>
+    </>)}
     </div>
   );
 }

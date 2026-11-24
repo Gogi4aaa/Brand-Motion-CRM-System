@@ -6,10 +6,14 @@ import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
 import { ContentCalendar } from "@/components/ContentCalendar";
 import { BatchLinkModal } from "@/components/BatchLinkModal";
-import { clientsById, contentTypeMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, CYCLE_PHASES, monthLabel } from "@/lib/data";
+import { HealthChip } from "@/components/VideoFlow";
+import { clientsById, contentTypeMeta, clientReviewMeta, isArchived, BOARD_RETENTION_DAYS, PRODUCTION_STAGES, POST_STAGES, videoHealth, type ContentItem } from "@/lib/data";
+
+// "2026-11-28" -> "28.11"
+const dm = (d?: string | null) => (d ? `${d.slice(8, 10)}.${d.slice(5, 7)}` : "");
 
 export default function ProductionPage() {
-  const { contentItems, clients, cycles, currentUser, advanceStage, completeVideo, advanceCycle, openModal, visibleClients, team, requestBatchApproval } = useStore();
+  const { contentItems, clients, currentUser, advanceStage, completeVideo, openModal, visibleClients, team, requestBatchApproval } = useStore();
   // Импортът на сценарии е и за стратезите/сценаристите — тяхната работа е
   // да вкарват готовите текстове, без това да им дава екипни права. Циклите
   // обаче са координация и остават за admin/manager.
@@ -18,13 +22,23 @@ export default function ProductionPage() {
   const canImport = canManageCycles || myRoles.includes("strategy") || myRoles.includes("script");
   // „Приключени“ приема drop само от Публикуващия кръг.
   const canPublish = canManageCycles || myRoles.includes("review");
-  const activeCycles = cycles.filter((c) => c.phase !== "published");
   const byId = clientsById(clients);
   const allowedIds = new Set(visibleClients.map((c) => c.id));
   const [clientFilter, setClientFilter] = useState("all");
   // Два борда: видеата минават през видео етапите, постовете — през своите.
   const [boardTab, setBoardTab] = useState<"videos" | "posts">("videos");
   const [mine, setMine] = useState(false);
+  // „Искат внимание“: само видеата след датата, заседналите и чакащите (0061).
+  // „Чака теб“ на „Днес“ води право тук: /production?attention=1
+  const [attention, setAttention] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("attention") === "1") setAttention(true); }, []);
+  const needsAttention = (c: ContentItem) => {
+    if (c.published || c.type === "post") return false;
+    const lvl = videoHealth(c)?.level;
+    return lvl === "late" || lvl === "stuck" || lvl === "waiting";
+  };
+  // „По месеци“ — колко е готово за всеки клиент всеки месец. Дъската е за текущата работа.
   const [showArchive, setShowArchive] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   // Дъската на цял екран: разгъва борда до целия прозорец (отгоре до долу),
@@ -64,12 +78,20 @@ export default function ProductionPage() {
   const inScope = contentItems.filter((c) => {
     if (!allowedIds.has(c.client)) return false;
     if (clientFilter !== "all" && c.client !== clientFilter) return false;
+    if (attention && !needsAttention(c)) return false;
     if (mine) {
       const cur = (c.stages || []).find((s) => s.key === (c.current_stage || "strategy"));
       if (cur?.assignee !== currentUser.initials) return false;
     }
     return true;
   });
+  // Видеа в работа по клиент (за бутоните отгоре) — без публикуваните.
+  const openByClient = (() => {
+    const by: Record<string, number> = {};
+    for (const c of contentItems) if (allowedIds.has(c.client) && !c.published && c.type !== "post") by[c.client] = (by[c.client] || 0) + 1;
+    return { by, total: Object.values(by).reduce((a, b) => a + b, 0) };
+  })();
+  const attentionCount = contentItems.filter((c) => allowedIds.has(c.client) && (clientFilter === "all" || c.client === clientFilter) && needsAttention(c)).length;
   const archivedCount = inScope.filter((c) => c.published && isArchived(c.published_at)).length;
   const visible = showArchive ? inScope : inScope.filter((c) => !(c.published && isArchived(c.published_at)));
 
@@ -92,7 +114,7 @@ export default function ProductionPage() {
         return (
           <div
             key={col.key}
-            className="bm-kcol"
+            className={"bm-kcol" + (items.length === 0 ? " bm-kcol--empty" : "")}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => {
               if (!dragId) return;
@@ -105,7 +127,7 @@ export default function ProductionPage() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: col.dot, flexShrink: 0 }} />
-                <span title={col.label} style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{col.label}</span>
+                <span title={col.label} className="pf-col-title">{col.label}</span>
               </div>
               <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{items.length}</span>
             </div>
@@ -129,10 +151,14 @@ export default function ProductionPage() {
                     <span aria-hidden="true" style={{ position: "absolute", top: 6, right: 6, width: 18, height: 18, borderRadius: 4, border: "2px solid var(--bm-brand-500)", background: picked ? "var(--bm-brand-500)" : "var(--bm-surface)", color: "#fff", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, lineHeight: 1 }}>{picked ? "✓" : ""}</span>
                   )}
                   <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)", paddingRight: selectMode ? 22 : 0 }}>{it.published ? "✓ " : ""}{it.title || "(без заглавие)"}</div>
+                  {!it.published && clientReviewMeta(it.client_review_status) && (
+                    <span className={"bm-badge " + clientReviewMeta(it.client_review_status)!.cls} style={{ alignSelf: "flex-start" }}>{clientReviewMeta(it.client_review_status)!.short}</span>
+                  )}
+                  <HealthChip item={it} />
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
+                    <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-muted)", fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{byId[it.client]?.name || it.client}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      {it.date && <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }} title="Дата за публикуване">{dm(it.date)}</span>}
                       {cur?.assignee && <Avatar initials={cur.assignee} style={{ width: 22, height: 22, fontSize: 9 }} />}
                     </span>
                   </div>
@@ -178,7 +204,7 @@ export default function ProductionPage() {
       {/* Приключени: публикувани ръчно, през етапите или от нощния job при
           минала дата. Drop тук маркира видеото публикувано (само canPublish). */}
       <div
-        className="bm-kcol"
+        className={"bm-kcol" + (completed.length === 0 ? " bm-kcol--empty" : "")}
         onDragOver={(e) => e.preventDefault()}
         onDrop={() => {
           if (dragId && canPublish) completeVideo(dragId);
@@ -188,7 +214,7 @@ export default function ProductionPage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "var(--bm-space-1) var(--bm-space-2)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", minWidth: 0 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--bm-success-600)", flexShrink: 0 }} />
-            <span title="Приключени" style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Приключени</span>
+            <span title="Приключени" className="pf-col-title">Приключени</span>
           </div>
           <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)", fontWeight: 600, background: "var(--bm-surface)", borderRadius: "var(--bm-radius-full)", padding: "1px 8px" }}>{completed.length}</span>
         </div>
@@ -204,7 +230,7 @@ export default function ProductionPage() {
                 <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)", lineHeight: "var(--bm-leading-snug)" }}>✓ {it.title || "(без заглавие)"}</div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{byId[it.client]?.name || it.client}</span>
-                  <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{it.date?.slice(5)}</span>
+                  <span style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{dm(it.date)}</span>
                 </div>
               </div>
             );
@@ -222,64 +248,32 @@ export default function ProductionPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <div>
           <h1>Продукция</h1>
-          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Местѝ всяко видео през етапите — влаченето го предава на следващия.</p>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>Всяко видео минава през етапите отляво надясно. Клик върху видеото го отваря.</p>
         </div>
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center", flexWrap: "wrap" }}>
-          <label className="bm-checkbox"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Моята работа</label>
+          {!currentUser.isAdmin && <label className="bm-checkbox"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Моята работа</label>}
           <label className="bm-checkbox" title={`Показва публикуваното отпреди повече от ${BOARD_RETENTION_DAYS} дни в колоната „Приключени“ (данните винаги остават в клиентския портал)`}>
             <input type="checkbox" checked={showArchive} onChange={(e) => setShowArchive(e.target.checked)} /> Архив ({archivedCount})
           </label>
           {canImport && (
             <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "importScripts" })}>Импортирай сценарии</button>
           )}
-          <select className="bm-select" style={{ width: "auto", minWidth: 160 }} value={clientFilter} onChange={(e) => changeClient(e.target.value)}>
-            <option value="all">Всички клиенти</option>
-            {visibleClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
           {clientFilter !== "all" && (
             <button className="bm-btn bm-btn--secondary" title="Цветове, тон на гласа и правила на този клиент" onClick={() => openModal({ kind: "brandView", clientId: clientFilter })}>Бранд</button>
           )}
         </div>
       </div>
 
-      {canManageCycles && (
-        <div className="bm-card">
-          <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)" }}>
-              <div style={{ fontWeight: 700, fontSize: "var(--bm-text-sm)" }}>Месечни цикли — къде сме с всеки клиент</div>
-              <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "cycle" })}>+ Нов цикъл</button>
-            </div>
-            {activeCycles.length === 0 ? (
-              <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)" }}>Няма активни цикли. Започни цикъл, за да задвижиш идеи и сценарии за клиент.</div>
-            ) : (
-              activeCycles.map((cy) => {
-                const phaseIdx = CYCLE_PHASES.findIndex((p) => p.key === cy.phase);
-                const next = phaseIdx < CYCLE_PHASES.length - 1 ? CYCLE_PHASES[phaseIdx + 1] : null;
-                const done = contentItems.filter((ci) => ci.cycle_id === cy.id && ci.published).length;
-                return (
-                  <div key={cy.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap", borderTop: "1px solid var(--bm-border)", paddingTop: "var(--bm-space-3)" }}>
-                    <div style={{ minWidth: 160 }}>
-                      <div style={{ fontWeight: 600, fontSize: "var(--bm-text-sm)" }}>{byId[cy.client]?.name || cy.client}</div>
-                      <div className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>{monthLabel(cy.month)} · {cy.phase === "production" || cy.phase === "published" ? `${done}/${cy.target_count} готови` : `${cy.target_count} видеа`}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-2)", flexWrap: "wrap" }}>
-                      {CYCLE_PHASES.map((p, i) => (
-                        <span key={p.key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "var(--bm-text-xs)", fontWeight: i === phaseIdx ? 700 : 400, color: i <= phaseIdx ? "var(--bm-text)" : "var(--bm-text-subtle)" }}>
-                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: i <= phaseIdx ? p.dot : "var(--bm-border-strong)" }} />
-                          {p.label}
-                        </span>
-                      ))}
-                    </div>
-                    {next ? (
-                      <button className="bm-btn bm-btn--primary" style={{ fontSize: "var(--bm-text-xs)", padding: "4px 10px" }} onClick={() => advanceCycle(cy.id, next.key)}>→ {next.label}</button>
-                    ) : <span />}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+      {/* Клиентите като бутони: колко видеа има всеки в работа — един клик филтрира дъската и календара. */}
+      <div className="pf-clients" role="group" aria-label="Клиент">
+        {attentionCount > 0 || attention ? (
+          <button type="button" className={"crm-chip pf-attn" + (attentionCount > 0 ? " pf-attn--hot" : "")} aria-pressed={attention} onClick={() => setAttention((v) => !v)} title="Видеа след датата, стоящи над 7 дни в един етап или чакащи нещо">Искат внимание · {attentionCount}</button>
+        ) : null}
+        <button type="button" className="crm-chip" aria-pressed={clientFilter === "all"} onClick={() => changeClient("all")}>Всички · {openByClient.total}</button>
+        {visibleClients.filter((c) => !c.archived_at && (openByClient.by[c.id] || clientFilter === c.id)).map((c) => (
+          <button key={c.id} type="button" className="crm-chip" aria-pressed={clientFilter === c.id} onClick={() => changeClient(c.id)}>{c.name} · {openByClient.by[c.id] || 0}</button>
+        ))}
+      </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
         <div className="bm-tabs" style={{ border: "none" }}>

@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "./Icon";
@@ -8,17 +9,18 @@ import { useStore } from "./store";
 import { fmtK, canAccess, memberTitle, inCurrentMonth } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
 
-const NAV: { href: string; label: string; icon: IconName }[] = [
-  { href: "/dashboard", label: "Табло", icon: "dashboard" },
-  { href: "/tasks", label: "Задачи", icon: "tasks" },
-  { href: "/pipeline", label: "Продажби", icon: "pipeline" },
+// Отгоре е всекидневната работа на админа; отдолу — екипните неща, които с
+// AI автоматизацията се ползват рядко.
+const NAV: { href: string; label: string; icon: IconName; group?: "team" }[] = [
+  { href: "/dashboard", label: "Днес", icon: "dashboard" },
   { href: "/clients", label: "Клиенти", icon: "clients" },
   { href: "/production", label: "Продукция", icon: "production" },
-  { href: "/bookings", label: "Снимачни дни", icon: "calendar" },
+  { href: "/pipeline", label: "Продажби", icon: "pipeline" },
   { href: "/invoices", label: "Фактури", icon: "invoices" },
-  { href: "/payouts", label: "Възнаграждения", icon: "invoices" },
   { href: "/analytics", label: "Анализи", icon: "analytics" },
-  { href: "/team", label: "Екип", icon: "team" },
+  { href: "/bookings", label: "Снимачни дни", icon: "calendar", group: "team" },
+  { href: "/payouts", label: "Възнаграждения", icon: "invoices", group: "team" },
+  { href: "/team", label: "Екип", icon: "team", group: "team" },
 ];
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -30,7 +32,8 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   // Събрано ТОЗИ месец срещу целта (сборът от месечните такси на активните
   // клиенти) — реални числа вместо закования някога „Юни · 72%“.
   const collected = invoices.filter((i) => i.status === "paid" && inCurrentMonth(i.paid_at)).reduce((a, b) => a + b.amount, 0);
-  const target = clients.filter((c) => c.status === "Active").reduce((a, b) => a + b.mrr, 0);
+  // Целта = договореното от всички клиенти, по които работим (не само „Активен“).
+  const target = clients.filter((c) => !c.archived_at && c.status !== "Churned" && c.engagement !== "project").reduce((a, b) => a + b.mrr, 0);
   const pct = target > 0 ? Math.min(100, Math.round((collected / target) * 100)) : null;
   const monthName = new Date().toLocaleDateString("bg-BG", { month: "long" });
 
@@ -69,12 +72,18 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         >
           Работно пространство
         </span>
-        {NAV.filter((item) => canAccess(currentUser.level, item.href.replace("/", ""))).map((item) => {
+        {NAV.filter((item) => canAccess(currentUser.level, item.href.replace("/", ""))).map((item, i, list) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const firstTeam = currentUser.isAdmin && item.group === "team" && list[i - 1]?.group !== "team";
           return (
-            <Link key={item.href} href={item.href} onClick={onClose} className={"bm-nav__item" + (active ? " bm-nav__item--active" : "")}>
-              <Icon name={item.icon} /> {item.label}
-            </Link>
+            <React.Fragment key={item.href}>
+              {firstTeam && (
+                <span style={{ fontSize: "var(--bm-text-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "var(--bm-tracking-wide)", color: "var(--bm-text-subtle)", padding: "var(--bm-space-4) var(--bm-space-3) var(--bm-space-1)" }}>Екип</span>
+              )}
+              <Link href={item.href} onClick={onClose} className={"bm-nav__item" + (active ? " bm-nav__item--active" : "")}>
+                <Icon name={item.icon} /> {item.label}
+              </Link>
+            </React.Fragment>
           );
         })}
       </nav>

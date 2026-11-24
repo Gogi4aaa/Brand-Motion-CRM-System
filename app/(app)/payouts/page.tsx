@@ -670,7 +670,8 @@ function ProfitStrip({ month, invoices, payouts }: {
   invoices: Parameters<typeof collectedRevenue>[0];
   payouts: Parameters<typeof payoutCost>[0];
 }) {
-  const rev = collectedRevenue(invoices, month === monthKey());
+  // Събраното е за ИЗБРАНИЯ месец (по дата на плащане) — преди за минал месец показваше приходите за цялото време.
+  const rev = month ? invoices.filter((i) => i.status === "paid" && (i.paid_at || "").slice(0, 7) === month).reduce((a, i) => a + (i.amount || 0), 0) : collectedRevenue(invoices);
   const cost = payoutCost(payouts, month);
   const net = rev - cost;
   return (

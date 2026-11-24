@@ -2,14 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
-import { Avatar } from "@/components/Avatar";
 import { CommentThread } from "@/components/CommentThread";
 import { BrandTab } from "@/components/BrandTab";
-import { clientsById, invStatusMeta, prioMeta, taskStatusLabel, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtK, fmtFull, fmtDay } from "@/lib/data";
+import { clientsById, invStatusMeta, healthMeta, analysisStatusMeta, CLIENT_CHANNELS, fmtFull, fmtDay, clientLtv, monthKey, monthLabel, monthProgress } from "@/lib/data";
+import { ClientVideosTab, quotaText } from "@/components/MonthProgress";
 import { Money } from "@/components/MoneyLock";
+import { ClientMonths } from "@/components/ClientMonths";
+import { ClientPaymentCard, DueLabel } from "@/components/PaymentBehavior";
+import { clientStatusMeta } from "@/lib/data";
 
 function Kpi({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -23,23 +26,37 @@ function Kpi({ label, value }: { label: string; value: React.ReactNode }) {
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { clients, invoices, tasks, openModal, deleteClient, restoreClient, currentUser, team, clientConnections, setClientConnection } = useStore();
-  const [tab, setTab] = useState<"overview" | "brand" | "invoices" | "tasks">("overview");
+  const { clients, invoices, cycles, contentItems, openModal, deleteClient, restoreClient, setClientEngagement, currentUser, team, clientConnections, setClientConnection, getPortalLink } = useStore();
+  type Tab = "overview" | "videos" | "brand" | "invoices";
+  const [tab, setTab] = useState<Tab>(useSearchParams().get("tab") === "videos" ? "videos" : "overview");
+  const [portalCopied, setPortalCopied] = useState(false);
 
   const byId = clientsById(clients);
-  const c = byId[id] || clients[0];
+  const found = byId[id];
+  // Непознат клиент (грешен линк или още се зарежда) — не показваме чужд акаунт.
+  if (!found) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)", alignItems: "flex-start" }}>
+        <Link href="/clients" className="bm-btn bm-btn--ghost bm-btn--sm"><Icon name="back" size={16} /> Всички клиенти</Link>
+        <p className="bm-text-muted">{clients.length ? "Няма такъв клиент." : "Зареждане…"}</p>
+      </div>
+    );
+  }
+  const c = found;
+  const copyPortal = async () => {
+    const token = await getPortalLink(c.id);
+    if (!token) return;
+    try { await navigator.clipboard.writeText(`${window.location.origin}/portal/${token}`); } catch { /* clipboard отказан — линкът пак е валиден */ }
+    setPortalCopied(true);
+    setTimeout(() => setPortalCopied(false), 2500);
+  };
   const h = healthMeta(c.health);
   const cInv = invoices.filter((i) => i.client === c.id);
-  const cTasks = tasks.filter((t) => t.client === c.id);
   const balance = cInv.filter((i) => i.status === "pending" || i.status === "overdue").reduce((a, b) => a + b.amount, 0);
-  const ltv = cInv.filter((i) => i.status === "paid").reduce((a, b) => a + b.amount, 0) + c.mrr * 6;
+  const ltv = clientLtv(invoices, c.id); // реално платеното досега
+  const [month] = monthProgress([c], cycles, contentItems, monthKey());
 
-  const channels = [["Платено търсене", 0.5], ["Платени социални", 0.32], ["SEO", 0.12], ["Имейл", 0.06]].map(([name, r]) => {
-    const v = Math.round(c.mrr * (r as number));
-    return { name: name as string, valStr: fmtFull(v), w: Math.min(100, Math.round((v / 9000) * 100)) };
-  });
-
-  const TABS: ["overview" | "brand" | "invoices" | "tasks", string][] = [["overview", "Преглед"], ["brand", "Бранд"], ["invoices", "Фактури"], ["tasks", "Задачи"]];
+  const TABS: [Tab, string][] = [["overview", "Преглед"], ["videos", "Видеа"], ["brand", "Бранд"], ["invoices", "Фактури"]];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
@@ -48,12 +65,19 @@ export default function ClientDetailPage() {
       <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <span className="bm-avatar bm-avatar--lg" style={{ width: 56, height: 56, fontSize: "var(--bm-text-lg)" }}>{c.initials}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1>{c.name}</h1>
+          <h1>{c.name}{c.engagement === "project" && <span className="bm-badge bm-badge--neutral" style={{ marginLeft: 10, verticalAlign: "middle" }}>проектен клиент</span>}</h1>
           <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{c.industry} · Отговорник {team.find((m) => m.initials === c.owner)?.name || c.owner}</p>
         </div>
+        <span className={"bm-badge " + clientStatusMeta(c.status).cls}>{clientStatusMeta(c.status).label}</span>
         <span className={"bm-badge " + h.cls}>{h.label}</span>
         <Link href={`/calendar?client=${c.id}`} className="bm-btn bm-btn--secondary"><Icon name="calendar" size={16} /> Календар</Link>
+        <button className="bm-btn bm-btn--secondary" onClick={copyPortal} title="Линк, който клиентът отваря без логин">{portalCopied ? "✓ Линкът е копиран" : "Клиентски портал"}</button>
         <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "client", mode: "edit", client: c })}>Редакция</button>
+        {currentUser.isAdmin && !c.archived_at && (
+          <button className="bm-btn bm-btn--ghost" title={c.engagement === "project" ? "Връща клиента в месечните сметки, пакета и напомнянията" : "Остава в системата с историята си, но без месечна такса, пакет и напомняния"} onClick={() => setClientEngagement(c.id, c.engagement === "project" ? "retainer" : "project")}>
+            {c.engagement === "project" ? "Направи постоянен" : "Премести в проектни"}
+          </button>
+        )}
         {currentUser.isAdmin && (c.archived_at ? (
           <button className="bm-btn bm-btn--secondary" onClick={() => restoreClient(c.id)}>
             Върни от архива
@@ -80,8 +104,8 @@ export default function ClientDetailPage() {
       <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--bm-space-4)" }}>
         <Kpi label="Месечен приход" value={<Money>{fmtFull(c.mrr)}</Money>} />
         <Kpi label="Дължимо салдо" value={<Money>{fmtFull(balance)}</Money>} />
-        <Kpi label="Отворени задачи" value={cTasks.filter((t) => t.status !== "done").length} />
-        <Kpi label="Обща стойност" value={<Money>{fmtK(ltv)}</Money>} />
+        <Kpi label={`Видеа за ${monthLabel(monthKey())}`} value={month.target ? quotaText(month.done, month.target) : <span title="Задай бройката от „Редакция“">{month.done} <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-sm)", fontWeight: 400 }}>· няма бройка</span></span>} />
+        <Kpi label="Платено досега" value={<Money>{fmtFull(ltv)}</Money>} />
       </section>
 
       <div className="bm-tabs">
@@ -90,7 +114,11 @@ export default function ClientDetailPage() {
         ))}
       </div>
 
+      {tab === "videos" && <ClientVideosTab client={c} />}
+
       {tab === "brand" && <BrandTab client={c} />}
+
+      {tab === "invoices" && <ClientPaymentCard client={c} />}
 
       {tab === "invoices" && (
         <div className="bm-table-wrap">
@@ -105,7 +133,7 @@ export default function ClientDetailPage() {
                     <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
                     <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
                     <td style={{ color: "var(--bm-text-subtle)" }}>{fmtDay(iv.issued)}</td>
-                    <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
+                    <td><DueLabel iv={iv} /></td>
                   </tr>
                 );
               })}
@@ -114,51 +142,15 @@ export default function ClientDetailPage() {
         </div>
       )}
 
-      {tab === "tasks" && (
-        <div className="bm-card"><div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-          {cTasks.map((t) => {
-            const pm = prioMeta(t.priority);
-            return (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", paddingBottom: "var(--bm-space-3)", borderBottom: "1px solid var(--bm-border)" }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{t.title}</div>
-                  <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{taskStatusLabel(t.status)} · краен срок {t.due}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--bm-space-3)" }}>
-                  <span className={"bm-badge " + pm.cls}>{pm.label}</span>
-                  <Avatar initials={t.assignee} />
-                </div>
-              </div>
-            );
-          })}
-        </div></div>
-      )}
-
       {tab === "overview" && (
         <>
-        <section className="bm-split">
-          <div className="bm-card">
-            <div className="bm-card__header"><h3>Разход по канали този месец</h3></div>
-            <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-4)" }}>
-              {channels.map((x) => (
-                <div key={x.name}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--bm-text-sm)", marginBottom: 6 }}><span>{x.name}</span><span style={{ fontFamily: "var(--bm-font-mono)", color: "var(--bm-text-muted)" }}><Money>{x.valStr}</Money></span></div>
-                  <div className="bm-progress"><div className="bm-progress__bar" style={{ width: x.w + "%" }} /></div>
-                </div>
-              ))}
-            </div>
-          </div>
+        <ClientMonths c={c} />
+        {c.note && (
           <div className="bm-card">
             <div className="bm-card__header"><h3>Бележки за акаунта</h3></div>
-            <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)", fontSize: "var(--bm-text-sm)", color: "var(--bm-text-muted)" }}>
-              <p style={{ margin: 0 }}>{c.note}</p>
-              <div style={{ display: "flex", gap: "var(--bm-space-2)", alignItems: "center", paddingTop: "var(--bm-space-2)" }}>
-                <Avatar initials={c.owner} />
-                <span style={{ fontSize: "var(--bm-text-xs)" }}>Последна активност преди 2 дни</span>
-              </div>
-            </div>
+            <div className="bm-card__body" style={{ fontSize: "var(--bm-text-sm)", color: "var(--bm-text-muted)", whiteSpace: "pre-wrap" }}>{c.note}</div>
           </div>
-        </section>
+        )}
         <div className="bm-card">
           <div className="bm-card__header">
             <h3>Бизнес анализ</h3>

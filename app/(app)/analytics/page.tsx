@@ -18,6 +18,8 @@ import {
   PIPELINE_STAGES,
 } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
+import { MoneyTruth } from "@/components/MoneyTruth";
+import { PaymentBehavior } from "@/components/PaymentBehavior";
 import { MoneyChart, VideosChart, Spark } from "@/components/AnalyticsCharts";
 
 const money = (n: number) => fmtFull(n);
@@ -73,7 +75,7 @@ export default function AnalyticsPage() {
   const lostSum = lost.reduce((a, l) => a + (l.value || 0), 0);
   const dealMax = Math.max(1, wonSum, lostSum);
   const openDeals = PIPELINE_STAGES
-    .filter((s) => s.key !== "won" && s.key !== "lost")
+    .filter((s) => s.key !== "won" && s.key !== "lost" && s.key !== "waiting")
     .map((s) => ({ title: s.title, val: leads.filter((l) => l.stage === s.key).reduce((a, b) => a + (b.value || 0), 0) }))
     .filter((s) => s.val > 0);
 
@@ -85,6 +87,8 @@ export default function AnalyticsPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-5)" }}>
+      <MoneyTruth />
+      <PaymentBehavior />
       <div className="an-app">
         <div className="an-head">
           <div>

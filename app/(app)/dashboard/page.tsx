@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
-import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, owedFor, inCurrentMonth, parseDay } from "@/lib/data";
+import { clientsById, invStatusMeta, prioMeta, fmtK, fmtFull, owedFor, inCurrentMonth, parseDay, monthCollections, monthKey, monthLabel, fmtDay } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
+import { MonthProgressCard } from "@/components/MonthProgress";
+import { TodayView } from "@/components/TodayView";
 
 type Period = "today" | "week" | "month";
 const PERIODS: { key: Period; label: string; word: string }[] = [
@@ -35,10 +37,10 @@ function Collapse({ title, badge, defaultOpen = false, children }: { title: stri
 
 function ago(iso: string) {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return "just now";
-  if (s < 3600) return Math.floor(s / 60) + " min ago";
-  if (s < 86400) return Math.floor(s / 3600) + " hr ago";
-  return Math.floor(s / 86400) + "d ago";
+  if (s < 60) return "току-що";
+  if (s < 3600) return "преди " + Math.floor(s / 60) + " мин";
+  if (s < 86400) return "преди " + Math.floor(s / 3600) + " ч";
+  return "преди " + Math.floor(s / 86400) + " дни";
 }
 
 function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.ReactNode; deltaCls: string; delta: string }) {
@@ -51,8 +53,14 @@ function Kpi({ label, value, deltaCls, delta }: { label: string; value: React.Re
   );
 }
 
+// Админът отваря „Днес“ (какво чака него); екипът — досегашното табло.
 export default function DashboardPage() {
-  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead, visibleClients, videoEarnings, workerPackages, payouts } = useStore();
+  const { currentUser } = useStore();
+  return currentUser.isAdmin ? <TodayView /> : <TeamDashboard />;
+}
+
+function TeamDashboard() {
+  const { clients, invoices, tasks, toggleDone, currentUser, activity, team, contentItems, notifications, markNotificationRead, visibleClients, videoEarnings, workerPackages, payouts, monthTargets } = useStore();
   // Дължимото на текущия човек идва от плащането по видео (0046).
   const myOwed = owedFor(videoEarnings, workerPackages, payouts, currentUser.id);
   // Мениджърските числа се смятат само по клиентите, до които има достъп.
@@ -64,6 +72,9 @@ export default function DashboardPage() {
   // (екип, продукция), workers get only their own work.
   const showMoney = currentUser.isAdmin;
   const showTeamOps = currentUser.level !== "worker";
+  // Кой колко още дължи за текущия месец (същата сметка като Фактури → По месеци).
+  const collectRows = showMoney ? monthCollections(clients, invoices, monthTargets, monthKey()).filter((r) => r.remaining > 0) : [];
+  const collectLeft = collectRows.reduce((a, r) => a + r.remaining, 0);
 
   // Period tabs: filter everything time-stamped (invoices, activity, alerts)
   // to today / last 7 days / last 30 days. Rows without created_at (mock or
@@ -172,7 +183,7 @@ export default function DashboardPage() {
                         <td>{byId[iv.client]?.name}</td>
                         <td><span className={"bm-badge " + m.cls}>{m.label}</span></td>
                         <td className="bm-table__num"><Money>{fmtFull(iv.amount)}</Money></td>
-                        <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due}</td>
+                        <td style={{ color: "var(--bm-text-subtle)" }}>{iv.due_date ? fmtDay(iv.due_date) : "—"}</td>
                       </tr>
                     );
                   })}
@@ -206,10 +217,30 @@ export default function DashboardPage() {
 
         {showTeamOps && (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-6)" }}>
-          {showMoney && (
+          {showMoney && overdue.length > 0 && (
           <div className="bm-alert bm-alert--danger" style={{ alignItems: "center" }}>
             <Icon name="warn" />
             <div><b>{overdue.length} просрочени фактури</b> — <Money>{fmtFull(sum(overdue))}</Money> се нуждаят от напомняне.</div>
+          </div>
+          )}
+
+          {(currentUser.isAdmin || currentUser.level === "manager") && <MonthProgressCard />}
+
+          {showMoney && collectRows.length > 0 && (
+          <div className="bm-card">
+            <div className="bm-card__header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", flexWrap: "wrap" }}>
+              <h3 style={{ margin: 0 }}>Остава да се събере за {monthLabel(monthKey())}: <Money>{fmtFull(collectLeft)}</Money></h3>
+              <Link href="/invoices" className="bm-btn bm-btn--secondary bm-btn--sm">Виж всички</Link>
+            </div>
+            <div className="bm-card__body" style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-2)" }}>
+              {collectRows.slice(0, 5).map((r) => (
+                <div key={r.client.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-3)", fontSize: "var(--bm-text-sm)" }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{r.client.name}</b> <span className="bm-text-subtle">· платил <Money>{fmtFull(r.paid)}</Money> от <Money>{fmtFull(r.expected)}</Money></span></span>
+                  <b style={{ color: "var(--bm-danger-600)", flex: "0 0 auto" }}><Money>{fmtFull(r.remaining)}</Money></b>
+                </div>
+              ))}
+              {collectRows.length > 5 && <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>и още {collectRows.length - 5}…</span>}
+            </div>
           </div>
           )}
 

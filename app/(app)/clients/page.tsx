@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useStore } from "@/components/store";
 import { Icon } from "@/components/Icon";
 import { Avatar } from "@/components/Avatar";
-import { healthMeta, fmtK, fmtFull } from "@/lib/data";
+import { fmtK, fmtFull } from "@/lib/data";
 import { Money } from "@/components/MoneyLock";
+import { ClientMonthBadge } from "@/components/MonthProgress";
+import { clientStatusMeta } from "@/lib/data";
 
 export default function ClientsPage() {
   const { clients, openModal, getPortalLink } = useStore();
@@ -30,7 +32,10 @@ export default function ClientsPage() {
   // превключвателя и продължават да носят приходната си история в Анализи.
   const active = clients.filter((c) => !c.archived_at);
   const archived = clients.filter((c) => c.archived_at);
-  const totalMrr = active.reduce((a, b) => a + b.mrr, 0);
+  // Проектните клиенти са отделно: пазят се, но не влизат в месечните сметки.
+  const projects = active.filter((c) => c.engagement === "project");
+  const totalMrr = active.filter((c) => c.engagement !== "project" && c.status !== "Churned").reduce((a, b) => a + b.mrr, 0);
+  const [showProjects, setShowProjects] = useState(false);
   const term = q.trim().toLowerCase();
   const pool = showArchived ? clients : active;
   const shown = term
@@ -42,7 +47,7 @@ export default function ClientsPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--bm-space-4)", flexWrap: "wrap" }}>
         <div>
           <h1>Клиенти</h1>
-          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{active.length} акаунта · <Money>{fmtK(totalMrr)}</Money> месечно{archived.length ? ` · ${archived.length} в архив` : ""}</p>
+          <p className="bm-text-muted" style={{ margin: "4px 0 0" }}>{active.length - projects.length} постоянни · <Money>{fmtK(totalMrr)}</Money> месечно{projects.length ? ` · ${projects.length} проектни` : ""}{archived.length ? ` · ${archived.length} в архив` : ""}</p>
         </div>
         <div style={{ display: "flex", gap: "var(--bm-space-3)", alignItems: "center" }}>
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
@@ -54,14 +59,12 @@ export default function ClientsPage() {
               {showArchived ? "Скрий архива" : `Архив (${archived.length})`}
             </button>
           )}
-          <button className="bm-btn bm-btn--secondary" onClick={() => openModal({ kind: "client", mode: "create" })}><Icon name="plus" /> Добави клиент</button>
+          <button className="bm-btn bm-btn--primary" onClick={() => openModal({ kind: "newClient" })}><Icon name="plus" /> Нов клиент</button>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--bm-space-4)" }}>
-        {shown.map((c) => {
-          const h = healthMeta(c.health);
-          return (
+      {(() => {
+        const card = (c: (typeof shown)[number]) => (
             <div
               key={c.id}
               className="bm-card aw-card-hover"
@@ -74,8 +77,9 @@ export default function ClientsPage() {
                   <div style={{ fontWeight: 700 }}>{c.name}</div>
                   <div style={{ fontSize: "var(--bm-text-xs)", color: "var(--bm-text-subtle)" }}>{c.industry}</div>
                 </div>
-                <span className={"bm-badge " + h.cls}>{h.label}</span>
+                <span className={"bm-badge " + clientStatusMeta(c.status).cls}>{clientStatusMeta(c.status).label}</span>
                 {c.archived_at && <span className="bm-badge bm-badge--neutral">архивиран</span>}
+                {c.engagement === "project" && <span className="bm-badge bm-badge--neutral">проектен</span>}
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", paddingTop: "var(--bm-space-3)", borderTop: "1px solid var(--bm-border)" }}>
                 <div>
@@ -87,6 +91,7 @@ export default function ClientsPage() {
                   <Avatar initials={c.owner} />
                 </div>
               </div>
+              {!c.archived_at && c.engagement !== "project" && <ClientMonthBadge client={c} />}
               <button
                 className="bm-btn bm-btn--secondary bm-btn--sm"
                 onClick={(e) => copyPortal(e, c.id)}
@@ -95,9 +100,24 @@ export default function ClientsPage() {
                 {copiedId === c.id ? "✓ Линкът е копиран" : "Клиентски портал — копирай линк"}
               </button>
             </div>
-          );
-        })}
-      </div>
+        );
+        const main = shown.filter((c) => c.engagement !== "project");
+        const proj = shown.filter((c) => c.engagement === "project");
+        const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--bm-space-4)" };
+        return (
+          <>
+            <div style={grid}>{main.map(card)}</div>
+            {proj.length > 0 && (
+              <section style={{ display: "flex", flexDirection: "column", gap: "var(--bm-space-3)" }}>
+                <button type="button" className="bm-btn bm-btn--ghost" style={{ alignSelf: "flex-start" }} aria-expanded={showProjects || !!term} onClick={() => setShowProjects((v) => !v)}>
+                  {showProjects || term ? "▾" : "▸"} Проектни клиенти ({proj.length}) <span className="bm-text-subtle" style={{ fontWeight: 400, marginLeft: 8 }}>без месечна такса — пазят се за следващ проект</span>
+                </button>
+                {(showProjects || !!term) && <div style={grid}>{proj.map(card)}</div>}
+              </section>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }

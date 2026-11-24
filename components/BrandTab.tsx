@@ -63,17 +63,17 @@ export function BrandTab({ client }: { client: Client }) {
             <span className="bm-text-subtle" style={{ fontSize: "var(--bm-text-xs)" }}>Бранд профилът още не е попълнен.</span>
           )}
         </div>
-        <a href="/brand-questionnaire.docx" download className="bm-btn bm-btn--secondary bm-btn--sm">Свали шаблона (.docx)</a>
+        <a href="/brand-questionnaire.docx" download className="bm-btn bm-btn--ghost bm-btn--sm">Въпросник за клиента (.docx)</a>
         {canEdit && (
           <button className="bm-btn bm-btn--primary bm-btn--sm" onClick={() => openModal({ kind: "brand", clientId: client.id })}>
-            {profile ? "Редакция / Импорт" : "Попълни / Импорт"}
+            {profile ? "Редакция / Импорт" : "Импортирай бранд"}
           </button>
         )}
       </div>
 
       {!profile && (
         <div className="bm-alert bm-alert--info">
-          Изпратете шаблона на клиента след onboarding срещата. Когато го върне попълнен, качете го с „Попълни / Импорт“ — системата разчита отговорите и ги разпределя тук.
+          Най-бързо: „Импортирай бранд“ → пусни файл или постави текст с цветовете, шрифтовете и тона — полетата се разпределят сами. Ако нямаш файл, копирай оттам инструкцията за AI и му дай сайта и материалите на клиента; или прати въпросника на клиента и качи попълнения.
           {(client.brand_voice || client.target_audience) && " По-долу са показани наличните стари бранд бележки от картата на клиента."}
         </div>
       )}

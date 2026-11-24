@@ -1,0 +1,246 @@
+/* ===========================================================================
+   Месечен пакет — „лентата с кадри“.
+   Всяко деление е ЕДНО видео от договорената бройка: зелено = готово,
+   кехлибар = готово, но след края на месеца, щриховано = в работа,
+   празно = остава. Чертичката показва докъде трябва да сме стигнали днес.
+   Цветовете са семантични и идват от токените — работят и в тъмната тема.
+   =========================================================================== */
+
+.qt-strip { position: relative; display: flex; gap: 3px; width: 100%; height: 10px; }
+.qt-strip--lg { height: 16px; gap: 4px; }
+.qt-strip--sm { height: 7px; gap: 2px; }
+
+.qt-seg {
+  flex: 1 1 0; min-width: 3px; border-radius: 3px;
+  background: var(--bm-surface-2);
+  box-shadow: inset 0 0 0 1px var(--bm-border);
+  transition: background var(--bm-duration-base) var(--bm-ease-out);
+}
+.qt-strip--lg .qt-seg { border-radius: 4px; }
+.qt-seg--done { background: var(--bm-success-500); box-shadow: none; }
+.qt-seg--late { background: var(--bm-warning-500); box-shadow: none; }
+.qt-seg--over { background: var(--bm-info-500); box-shadow: none; }
+.qt-seg--work {
+  box-shadow: inset 0 0 0 1px var(--bm-primary);
+  background: repeating-linear-gradient(135deg, var(--bm-primary) 0 2px, transparent 2px 5px);
+}
+
+/* Темпо: къде трябва да сме днес, ако вървим равномерно през месеца. */
+.qt-pace {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+  background: var(--bm-text); border-radius: 1px; opacity: .55; pointer-events: none;
+}
+
+/* ---- Кръгче с бройката ---- */
+.qt-ring { position: relative; flex: 0 0 auto; display: inline-grid; place-items: center; }
+.qt-ring svg { display: block; transform: rotate(-90deg); }
+.qt-ring__track { stroke: var(--bm-surface-2); }
+.qt-ring__bar { stroke: var(--qt-tone, var(--bm-primary)); transition: stroke-dashoffset var(--bm-duration-slow) var(--bm-ease-out); }
+.qt-ring__label {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--bm-font-mono); font-weight: var(--bm-weight-bold); line-height: 1;
+}
+
+.qt-tone--done   { --qt-tone: var(--bm-success-500); }
+.qt-tone--ok     { --qt-tone: var(--bm-primary); }
+.qt-tone--behind { --qt-tone: var(--bm-danger-500); }
+.qt-tone--none   { --qt-tone: var(--bm-border-strong); }
+
+/* ---- Ред „клиент за месеца“ (Табло) ---- */
+.qt-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px var(--bm-space-3);
+  padding: var(--bm-space-3); margin: 0 calc(var(--bm-space-3) * -1);
+  border-radius: var(--bm-radius-md); color: inherit; text-decoration: none;
+  transition: background var(--bm-duration-fast) var(--bm-ease);
+}
+.qt-row:hover, .qt-row:focus-visible { background: var(--bm-surface-2); outline: none; }
+.qt-row__name { min-width: 0; display: flex; align-items: center; gap: var(--bm-space-2); font-size: var(--bm-text-sm); }
+.qt-row__name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-row__count { font-family: var(--bm-font-mono); font-weight: var(--bm-weight-bold); font-size: var(--bm-text-sm); }
+.qt-row .qt-strip { grid-column: 1 / -1; }
+
+.qt-legend { display: flex; flex-wrap: wrap; gap: var(--bm-space-3); font-size: var(--bm-text-xs); color: var(--bm-text-subtle); }
+.qt-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.qt-legend i { width: 14px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* ---- Таб „Видеа“: месеците като лента за избор ---- */
+.qt-months {
+  display: flex; gap: var(--bm-space-2); overflow-x: auto; padding: 2px 2px var(--bm-space-2);
+  scrollbar-width: thin; scroll-snap-type: x proximity;
+}
+.qt-month {
+  appearance: none; font: inherit; color: inherit; cursor: pointer; text-align: left;
+  flex: 0 0 auto; min-width: 132px; scroll-snap-align: start;
+  display: flex; align-items: center; gap: var(--bm-space-3);
+  padding: var(--bm-space-3) var(--bm-space-4);
+  background: var(--bm-surface); border: 1px solid var(--bm-border); border-radius: var(--bm-radius-lg);
+  transition: border-color var(--bm-duration-fast) var(--bm-ease), box-shadow var(--bm-duration-fast) var(--bm-ease), transform var(--bm-duration-fast) var(--bm-ease);
+}
+.qt-month:hover { border-color: var(--bm-border-strong); transform: translateY(-1px); }
+.qt-month:focus-visible { outline: none; box-shadow: var(--bm-shadow-focus); }
+.qt-month[aria-pressed="true"] { border-color: var(--bm-primary); box-shadow: inset 0 0 0 1px var(--bm-primary), var(--bm-shadow-sm); }
+.qt-month__name { font-weight: var(--bm-weight-semibold); font-size: var(--bm-text-sm); text-transform: capitalize; white-space: nowrap; }
+.qt-month__sub { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); white-space: nowrap; }
+.qt-month__now { width: 6px; height: 6px; border-radius: 50%; background: var(--bm-primary); display: inline-block; margin-left: 6px; vertical-align: middle; }
+
+/* ---- Избраният месец ---- */
+.qt-detail__head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--bm-space-4); flex-wrap: wrap;
+  padding: var(--bm-space-5) var(--bm-space-5) var(--bm-space-4);
+}
+.qt-detail__title { margin: 0; font-size: var(--bm-text-xl); font-weight: var(--bm-weight-bold); text-transform: capitalize; letter-spacing: var(--bm-tracking-tight); }
+.qt-detail__body { padding: 0 var(--bm-space-5) var(--bm-space-4); display: flex; flex-direction: column; gap: var(--bm-space-4); }
+
+.qt-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--bm-space-2); }
+.qt-statbox { background: var(--bm-surface-2); border-radius: var(--bm-radius-md); padding: var(--bm-space-3); }
+.qt-statbox b { display: block; font-family: var(--bm-font-mono); font-size: var(--bm-text-xl); line-height: 1.1; }
+.qt-statbox span { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); }
+
+.qt-videos { border-top: 1px solid var(--bm-border); }
+.qt-video {
+  appearance: none; font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left;
+  width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: var(--bm-space-3);
+  padding: var(--bm-space-3) var(--bm-space-5); border-bottom: 1px solid var(--bm-border);
+  transition: background var(--bm-duration-fast) var(--bm-ease);
+}
+.qt-video:last-child { border-bottom: 0; }
+.qt-video:hover, .qt-video:focus-visible { background: var(--bm-surface-2); outline: none; }
+.qt-video__mark {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; color: #fff; background: var(--bm-success-500);
+}
+.qt-video__mark--late { background: var(--bm-warning-500); }
+.qt-video__mark--work { background: transparent; box-shadow: inset 0 0 0 2px var(--qt-dot, var(--bm-border-strong)); }
+.qt-video__title { font-weight: var(--bm-weight-semibold); font-size: var(--bm-text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-video__meta { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.qt-empty { padding: var(--bm-space-6) var(--bm-space-5); text-align: center; color: var(--bm-text-subtle); font-size: var(--bm-text-sm); }
+
+@media (max-width: 600px) {
+  .qt-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qt-detail__head { padding: var(--bm-space-4); }
+  .qt-detail__body { padding: 0 var(--bm-space-4) var(--bm-space-4); }
+  .qt-video { padding: var(--bm-space-3) var(--bm-space-4); grid-template-columns: 22px minmax(0, 1fr); }
+  .qt-video .bm-badge { grid-column: 2; justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qt-seg, .qt-ring__bar, .qt-month, .qt-row, .qt-video { transition: none; }
+  .qt-month:hover { transform: none; }
+}
+
+/* ===========================================================================
+   Движение на видеото (0061): филтри на списъка, редове, времева линия.
+   =========================================================================== */
+.vf-filters { display: flex; flex-wrap: wrap; gap: var(--bm-space-2); }
+.vf-filter {
+  appearance: none; font: inherit; font-size: var(--bm-text-sm); cursor: pointer; color: var(--bm-text-muted);
+  display: inline-flex; align-items: center; gap: var(--bm-space-2);
+  padding: 6px 12px; min-height: 36px; border-radius: var(--bm-radius-full);
+  background: var(--bm-surface); border: 1px solid var(--bm-border);
+  transition: border-color var(--bm-duration-fast) var(--bm-ease), color var(--bm-duration-fast) var(--bm-ease);
+}
+.vf-filter:hover { border-color: var(--bm-border-strong); color: var(--bm-text); }
+.vf-filter:focus-visible { outline: none; box-shadow: var(--bm-shadow-focus); }
+.vf-filter[aria-pressed="true"] { border-color: var(--bm-primary); color: var(--bm-text); box-shadow: inset 0 0 0 1px var(--bm-primary); font-weight: var(--bm-weight-semibold); }
+.vf-filter__n { font-family: var(--bm-font-mono); font-size: var(--bm-text-xs); padding: 1px 7px; border-radius: var(--bm-radius-full); background: var(--bm-surface-2); color: var(--bm-text-muted); }
+.vf-filter__n--hot { background: var(--bm-danger-50); color: var(--bm-danger-700); }
+
+.vf-row { cursor: pointer; }
+.vf-row:hover td, .vf-row:focus-visible td { background: var(--bm-surface-2); }
+.vf-row:focus-visible { outline: none; }
+.vf-title { max-width: 360px; }
+.vf-title span { display: block; font-weight: var(--bm-weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vf-title small, .vf-table small { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); }
+
+.vf-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.vf-ev { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: var(--bm-space-3); padding-bottom: var(--bm-space-3); }
+.vf-ev::before { content: ""; position: absolute; left: 6px; top: 14px; bottom: 0; width: 2px; background: var(--bm-border); }
+.vf-ev:last-child { padding-bottom: 0; }
+.vf-ev:last-child::before { display: none; }
+.vf-ev__dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 3px; box-shadow: 0 0 0 3px var(--bm-surface); position: relative; }
+.vf-ev__main { font-size: var(--bm-text-sm); min-width: 0; }
+.vf-ev__main small { display: block; font-size: var(--bm-text-xs); color: var(--bm-text-subtle); }
+.vf-ev--back .vf-ev__main b { color: var(--bm-warning-600); }
+
+@media (prefers-reduced-motion: reduce) { .vf-filter { transition: none; } }
+
+/* ===========================================================================
+   Платежно поведение (0062): оценка А–Г и лента „6 месеца“.
+   =========================================================================== */
+.pb-strip { display: inline-flex; gap: 3px; vertical-align: middle; }
+.pb-cell, .qt-legend i[class^="pb-cell"] { width: 16px; height: 16px; border-radius: 4px; display: inline-block; background: var(--bm-surface-2); box-shadow: inset 0 0 0 1px var(--bm-border); }
+.qt-legend i[class^="pb-cell"] { width: 12px; height: 12px; border-radius: 3px; }
+.pb-cell--ontime  { background: var(--bm-success-500) !important; box-shadow: none !important; }
+.pb-cell--late    { background: var(--bm-warning-500) !important; box-shadow: none !important; }
+.pb-cell--unpaid  { background: var(--bm-danger-500) !important; box-shadow: none !important; }
+.pb-cell--partial { background: repeating-linear-gradient(135deg, var(--bm-warning-500) 0 3px, transparent 3px 6px) !important; box-shadow: inset 0 0 0 1px var(--bm-warning-500) !important; }
+.pb-cell--due     { box-shadow: inset 0 0 0 2px var(--bm-primary) !important; }
+
+.pb-grade {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: var(--bm-radius-md);
+  font-weight: var(--bm-weight-bold); font-size: var(--bm-text-sm);
+}
+.pb-grade--a { background: var(--bm-success-50); color: var(--bm-success-700); }
+.pb-grade--b { background: var(--bm-info-50); color: var(--bm-info-700); }
+.pb-grade--c { background: var(--bm-warning-50); color: var(--bm-warning-700); }
+.pb-grade--d { background: var(--bm-danger-50); color: var(--bm-danger-700); }
+.pb-grade--none { background: var(--bm-surface-2); color: var(--bm-text-subtle); }
+
+.pb-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--bm-border); border-top: 1px solid var(--bm-border); border-bottom: 1px solid var(--bm-border); }
+.pb-kpi { background: var(--bm-surface); padding: var(--bm-space-4) var(--bm-space-5); display: flex; flex-direction: column; gap: 2px; }
+.pb-kpi span { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); text-transform: uppercase; letter-spacing: var(--bm-tracking-wide); font-weight: var(--bm-weight-semibold); }
+.pb-kpi b { font-size: var(--bm-text-xl); font-family: var(--bm-font-mono); }
+.pb-kpi small { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); }
+.pb-foot { padding: var(--bm-space-4) var(--bm-space-5); display: flex; flex-direction: column; gap: var(--bm-space-2); border-top: 1px solid var(--bm-border); }
+.pb-foot p { margin: 0; font-size: var(--bm-text-xs); color: var(--bm-text-subtle); max-width: 78ch; }
+
+/* ===========================================================================
+   Импорт на бранд профил: зона за пускане на файл + обобщение.
+   =========================================================================== */
+.bi-box { display: flex; flex-direction: column; gap: var(--bm-space-3); }
+.bi-drop {
+  display: flex; align-items: center; gap: var(--bm-space-4); cursor: pointer;
+  padding: var(--bm-space-5); border-radius: var(--bm-radius-lg);
+  border: 2px dashed var(--bm-border-strong); background: var(--bm-surface);
+  transition: border-color var(--bm-duration-fast) var(--bm-ease), background var(--bm-duration-fast) var(--bm-ease);
+}
+.bi-drop--compact { padding: var(--bm-space-4); }
+.bi-drop:hover, .bi-drop--over { border-color: var(--bm-primary); background: var(--bm-surface-2); }
+.bi-drop:focus-visible { outline: none; box-shadow: var(--bm-shadow-focus); border-color: var(--bm-primary); }
+.bi-drop__icon { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--bm-brand-50); color: var(--bm-primary); }
+.bi-drop b { display: block; font-size: var(--bm-text-sm); }
+.bi-drop small { display: block; font-size: var(--bm-text-xs); color: var(--bm-text-subtle); margin-top: 2px; }
+.bi-actions { display: flex; flex-wrap: wrap; gap: var(--bm-space-1); }
+.bi-help { display: flex; flex-direction: column; gap: var(--bm-space-3); font-size: var(--bm-text-sm); color: var(--bm-text-muted); }
+.bi-help p { margin: 0; }
+.bi-help pre {
+  margin: 0; padding: var(--bm-space-3) var(--bm-space-4); max-height: 220px; overflow: auto;
+  background: var(--bm-surface); border: 1px solid var(--bm-border); border-radius: var(--bm-radius-md);
+  font-family: var(--bm-font-mono); font-size: var(--bm-text-xs); line-height: 1.6; white-space: pre-wrap; color: var(--bm-text);
+}
+.bi-summary { display: flex; flex-direction: column; gap: var(--bm-space-3); padding: var(--bm-space-4); border-radius: var(--bm-radius-lg); border: 1px solid var(--bm-border); background: var(--bm-surface); }
+.bi-summary__head { display: flex; align-items: center; justify-content: space-between; gap: var(--bm-space-3); flex-wrap: wrap; font-size: var(--bm-text-sm); }
+.bi-swatches { display: inline-flex; }
+.bi-swatches i { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--bm-surface); box-shadow: 0 0 0 1px var(--bm-border); margin-left: -6px; display: inline-block; }
+.bi-swatches i:first-child { margin-left: 0; }
+.bi-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .bi-drop { transition: none; } }
+
+/* Бутонът „Искат внимание“ в реда с клиентите на Продукция. */
+.pf-attn--hot:not([aria-pressed="true"]) { border-color: var(--bm-danger-500); color: var(--bm-danger-700); background: var(--bm-danger-50); }
+.pf-attn[aria-pressed="true"] { background: var(--bm-danger-600); border-color: var(--bm-danger-600); color: #fff; }
+
+/* ===========================================================================
+   Напомняния за плащане (0064).
+   =========================================================================== */
+.pr-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--bm-space-4); padding: var(--bm-space-4) var(--bm-space-5); border-top: 1px solid var(--bm-border); }
+.pr-row__main { min-width: 0; flex: 1; }
+.pr-row__title { display: flex; align-items: center; gap: var(--bm-space-2); flex-wrap: wrap; font-size: var(--bm-text-sm); }
+.pr-row__meta { font-size: var(--bm-text-xs); color: var(--bm-text-subtle); margin-top: 4px; }
+.pr-row__text { margin: var(--bm-space-3) 0 0; padding: var(--bm-space-3) var(--bm-space-4); background: var(--bm-surface-2); border-radius: var(--bm-radius-md); font-family: inherit; font-size: var(--bm-text-sm); white-space: pre-wrap; color: var(--bm-text); }
+.pr-row__actions { display: flex; gap: var(--bm-space-2); flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+@media (max-width: 720px) { .pr-row { flex-direction: column; } .pr-row__actions { justify-content: flex-start; } }
+
+/* Продажби: шест колони (с „На изчакване“) се побират на широк екран. */
+@media (min-width: 761px) { .pl-board.bm-board--6 { grid-template-columns: repeat(6, minmax(190px, 1fr)); } }
